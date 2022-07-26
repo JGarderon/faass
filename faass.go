@@ -124,12 +124,24 @@ func StartEnv() {
     prepareEnv := flag.Bool( "prepare", false, "create environment (conf+dir ; bool)" ) 
     flag.Parse() 
     GLOBAL_CONF_PATH = string( *confPath ) 
+    if *prepareEnv {
+        GLOBAL_CONF = Conf {
+            Domain: "https://localhost", 
+            UI: "./content", 
+            Containers: "podman", 
+            TmpDir: "./tmp", 
+            Prefix: "lambda", 
+        } 
+        if GLOBAL_CONF.Export() {
+            os.Exit( 0 )
+        } else {
+            log.Fatal( "Unable to create environment" ) 
+            os.Exit( 0 )
+        }
+    } 
     if !ConfImport() { 
         log.Fatal( "Unable to load configuration" ) 
         os.Exit( 1 )
-    } 
-    if *prepareEnv {
-        
     } 
 } 
 

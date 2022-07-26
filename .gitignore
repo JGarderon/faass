@@ -18,6 +18,7 @@
 ### --- Propre au projet 
 
 faass
+conf.json
 content/
 tmp/
 server.crt
