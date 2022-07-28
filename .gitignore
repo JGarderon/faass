@@ -14,13 +14,21 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
+### --- Propre à l'env local 
+
+go.mod
+go.sum
 
 ### --- Propre au projet 
 
 faass
 conf.json
 content/
-tmp/
 server.crt
 server.key
+
+### --- Poubelle 
+
+tmp/
+sav-*
 
