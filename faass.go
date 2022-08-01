@@ -271,16 +271,57 @@ func ( container *ContainerDocker ) Check ( route *Route ) ( state string, err e
 }
 
 func ( container *ContainerDocker ) Start ( route *Route ) ( state bool, err error ) {
-    // log.Println( container.Check( route ) )
+    if route.Id == "" {
+        return false, errors.New( "ID container has null string" ) 
+    } 
+    cmd := exec.Command( 
+        "docker", 
+        "container", 
+        "restart", 
+        route.Id, 
+    ) 
+    o, err := cmd.CombinedOutput() 
+    cId := strings.TrimSuffix( string( o ), "\n" )  
+    if err != nil || cId != route.Id { 
+        return false, errors.New( cId ) 
+    } 
     return true, nil 
 }
 
 func ( container *ContainerDocker ) Stop ( route *Route ) ( state bool, err error ) {
+    if route.Id == "" {
+        return false, errors.New( "ID container has null string" ) 
+    } 
+    cmd := exec.Command( 
+        "docker", 
+        "container", 
+        "stop", 
+        route.Id, 
+    ) 
+    o, err := cmd.CombinedOutput() 
+    cId := strings.TrimSuffix( string( o ), "\n" )  
+    if err != nil || cId != route.Id { 
+        return false, errors.New( cId ) 
+    } 
     return true, nil 
 }
 
 func ( container *ContainerDocker ) Remove ( route *Route ) ( state bool, err error ) {
-    
+     if route.Id == "" {
+        return false, errors.New( "ID container has null string" ) 
+    } 
+    cmd := exec.Command( 
+        "docker", 
+        "container", 
+        "rm", 
+        route.Id, 
+    ) 
+    o, err := cmd.CombinedOutput() 
+    cId := strings.TrimSuffix( string( o ), "\n" )  
+    if err != nil || cId != route.Id { 
+        return false, errors.New( cId ) 
+    } 
+    route.Id = "" 
     return true, nil 
 }
 
@@ -292,7 +333,7 @@ func main() {
         Name: "toto", 
         Image: "nginx", 
         Provider: "docker", 
-    }
+    } 
 
     cd := ContainerDocker{}
 
@@ -303,6 +344,31 @@ func main() {
     etat2, err := cd.Check( &route )
     log.Println( "---->", etat2 ) 
     log.Println( "---->", err ) 
+
+    etat3, err := cd.Start( &route )
+    log.Println( "---->", etat3 ) 
+    log.Println( "---->", err ) 
+
+    etat4, err := cd.Check( &route )
+    log.Println( "---->", etat4 ) 
+    log.Println( "---->", err ) 
+
+    etat5, err := cd.Stop( &route )
+    log.Println( "---->", etat5 ) 
+    log.Println( "---->", err ) 
+
+    etat6, err := cd.Check( &route )
+    log.Println( "---->", etat6 ) 
+    log.Println( "---->", err ) 
+
+    etat7, err := cd.Remove( &route )
+    log.Println( "---->", etat7 ) 
+    log.Println( "---->", err ) 
+
+    etat8, err := cd.Check( &route )
+    log.Println( "---->", etat8 ) 
+    log.Println( "---->", err ) 
+
 
     // CreateLogger() 
     // StartEnv() 
