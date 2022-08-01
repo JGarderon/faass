@@ -4,12 +4,17 @@ import (
     "encoding/json" 
     "io/ioutil"
     "os"
+    "os/exec" 
     "reflect"
     "errors" 
     "flag"
-    "net/http"
+    // "net/http"
+    "strings"
     "log"
+    // "net"
+    // "time"
     // "fmt"
+
 )
 
 // ----------------------------------------------- 
@@ -24,6 +29,16 @@ const (
     ExitUndefined           // toujours '1' 
     ExitConfCreateKo
     ExitConfLoadKo
+)
+
+// ----------------------------------------------- 
+
+var (
+    DebugLogger     *log.Logger
+    InfoLogger      *log.Logger
+    WarningLogger   *log.Logger
+    ErrorLogger     *log.Logger
+    PanicLogger     *log.Logger
 )
 
 // ----------------------------------------------- 
@@ -116,9 +131,24 @@ type Route struct {
     Environment map[string]string `json:"env"`
     Image string `json:"image"`
     Provider string `json:"provider"`
+    Id string 
 } 
 
 // ----------------------------------------------- 
+
+func CreateLogger() {
+    m := "!!! starting ; test log" 
+    DebugLogger = log.New( os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile )
+    DebugLogger.Println( m ) 
+    InfoLogger = log.New( os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile )
+    InfoLogger.Println( m )
+    WarningLogger = log.New( os.Stderr, "WARNING: ", log.Ldate|log.Ltime|log.Lshortfile )
+    WarningLogger.Println( m )
+    ErrorLogger = log.New( os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile )
+    ErrorLogger.Println( m )
+    PanicLogger = log.New( os.Stderr, "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile )
+    PanicLogger.Println( m )    
+}
 
 func CreateEnv() bool {
     uiTmpDir := "./content" 
@@ -165,27 +195,134 @@ func StartEnv() {
 
 // ----------------------------------------------- 
 
+// func ClientContainer( path string ) { 
+//     c := http.Client{ Timeout: time.Duration(1) * time.Second } 
+//     resp, err := c.Get( path ) 
+//     if err != nil {
+//         fmt.Printf("Error %s", err)
+//         return
+//     }
+//     defer resp.Body.Close()
+//     body, err := ioutil.ReadAll(resp.Body) 
+// } 
+
+// ----------------------------------------------- 
+
+type Container interface { 
+    Create ( route Route ) ( state bool, err error ) 
+    Check ( route Route ) ( state bool, err error ) 
+    Remove ( route Route ) ( state bool, err error ) 
+}
+
+// ----------------------------------------------- 
+
+type ContainerDocker struct { 
+} 
+
+func ( container *ContainerDocker ) Create ( route *Route ) ( state string, err error ) {
+    if route.Image == "" {
+        return "undetermined", errors.New( "Image container has null value" ) 
+    }
+    if route.Name == "" {
+        return "undetermined", errors.New( "Name container has null value" ) 
+    }
+    cmd := exec.Command(
+        "docker", 
+        "container", 
+        "create", 
+        "--label", 
+        "faasS=true", 
+        "--hostname", 
+        route.Name, 
+        "--env", 
+        "FAASS=1", // Environment map[string]string `json:"env"`
+        route.Image, 
+    )
+    o, err := cmd.CombinedOutput() 
+    cId := strings.TrimSuffix( string( o ), "\n" ) 
+    if err != nil { 
+        log.Fatal( "container check ", err ) 
+        // return "undetermined", errors.New( cId ) 
+    } 
+    route.Id = cId 
+    return cId, nil 
+}
+
+func ( container *ContainerDocker ) Check ( route *Route ) ( state string, err error ) { 
+    // docker container ls -a --filter 'status=created' --format "{{.ID}}" | xargs docker rm 
+    if route.Id == "" {
+        return "undetermined", errors.New( "ID container has null string" ) 
+    } 
+    cmd := exec.Command( 
+        "docker", 
+        "container", 
+        "inspect", 
+        "-f", 
+        "{{.State.Status}}", 
+        route.Id, 
+    ) 
+    o, err := cmd.CombinedOutput() 
+    cState := strings.TrimSuffix( string( o ), "\n" )  
+    if err != nil { 
+        log.Fatal( "container check ", err ) 
+        // return "undetermined", errors.New( cState ) 
+    } 
+    return cState, nil 
+}
+
+func ( container *ContainerDocker ) Start ( route *Route ) ( state bool, err error ) {
+    // log.Println( container.Check( route ) )
+    return true, nil 
+}
+
+func ( container *ContainerDocker ) Stop ( route *Route ) ( state bool, err error ) {
+    return true, nil 
+}
+
+func ( container *ContainerDocker ) Remove ( route *Route ) ( state bool, err error ) {
+    
+    return true, nil 
+}
+
+// ----------------------------------------------- 
 
 func main() { 
 
-    StartEnv() 
-
-    muxer := http.NewServeMux() 
-
-    UIPath := GLOBAL_CONF.GetParam( "UI" ) 
-    if UIPath != "" {
-        log.Println( "UI path found :", UIPath ) 
-        muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
+    route := Route {
+        Name: "toto", 
+        Image: "nginx", 
+        Provider: "docker", 
     }
-    
-    // muxer.HandleFunc("/redirect/", redirectionHandler) 
-    
-    // muxer.HandleFunc("/lambda/", lambdaHandler)     
 
-    err := http.ListenAndServeTLS(":9090", "server.crt", "server.key", muxer)
-    if err != nil {
-        log.Println( "ListenAndServe :", err ) 
-        os.Exit( ExitUndefined )
-    }
+    cd := ContainerDocker{}
+
+    etat, err := cd.Create( &route )
+    log.Println( "-->", etat ) 
+    log.Println( "-->", err ) 
+
+    etat2, err := cd.Check( &route )
+    log.Println( "---->", etat2 ) 
+    log.Println( "---->", err ) 
+
+    // CreateLogger() 
+    // StartEnv() 
+
+    // muxer := http.NewServeMux() 
+
+    // UIPath := GLOBAL_CONF.GetParam( "UI" ) 
+    // if UIPath != "" {
+    //     log.Println( "UI path found :", UIPath ) 
+    //     muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
+    // }
     
+    // // muxer.HandleFunc("/redirect/", redirectionHandler) 
+    
+    // // muxer.HandleFunc("/lambda/", lambdaHandler)     
+
+    // err := http.ListenAndServeTLS(":9090", "server.crt", "server.key", muxer)
+    // if err != nil {
+    //     log.Println( "ListenAndServe :", err ) 
+    //     os.Exit( ExitUndefined )
+    // }
+
 }
