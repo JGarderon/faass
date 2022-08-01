@@ -8,13 +8,13 @@ import (
     "reflect"
     "errors" 
     "flag"
-    // "net/http"
+    "net/http"
     "strings"
     "log"
     // "net"
     // "time"
-    // "fmt"
-
+    "html"
+    "fmt" 
 )
 
 // ----------------------------------------------- 
@@ -46,12 +46,7 @@ var (
 // func redirectionHandler(w http.ResponseWriter, r *http.Request) {
 //     url := GLOBAL_DOMAIN + r.URL.Path[10:] // "/redirect/" = 10 signes 
 //     http.Redirect(w, r, url, 301)
-// }
-
-// func lambdaHandler(w http.ResponseWriter, r *http.Request) {
-//     url := GLOBAL_DOMAIN + r.URL.Path[10:] // "/lambda/" = 8 signes 
-//     http.Redirect(w, r, url, 301)
-// }
+// } 
 
 // ----------------------------------------------- 
 
@@ -126,16 +121,6 @@ func (c *Conf) Export( pathOption ...string ) bool {
 
 // ----------------------------------------------- 
 
-type Route struct { 
-    Name string `json:"name"` 
-    Environment map[string]string `json:"env"`
-    Image string `json:"image"`
-    Provider string `json:"provider"`
-    Id string 
-} 
-
-// ----------------------------------------------- 
-
 func CreateLogger() {
     m := "!!! starting ; test log" 
     DebugLogger = log.New( os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile )
@@ -205,6 +190,17 @@ func StartEnv() {
 //     defer resp.Body.Close()
 //     body, err := ioutil.ReadAll(resp.Body) 
 // } 
+
+// ----------------------------------------------- 
+
+type Route struct { 
+    Name string `json:"name"` 
+    Environment map[string]string `json:"env"`
+    Image string `json:"image"`
+    Provider string `json:"provider"`
+    Timeout int `json:"timeout"`
+    Id string 
+} 
 
 // ----------------------------------------------- 
 
@@ -327,68 +323,39 @@ func ( container *ContainerDocker ) Remove ( route *Route ) ( state bool, err er
 
 // ----------------------------------------------- 
 
+func lambdaHandler(w http.ResponseWriter, r *http.Request) { 
+    url := r.URL.Path[8:] // "/lambda/" = 8 signes 
+    log.Println( "lambdaHandler url :", url ) 
+
+    route, err := GLOBAL_CONF.GetRoute( url ) 
+    log.Println( "lambdaHandler route :", route, err ) 
+
+    fmt.Fprintf(w, "ici : %q", html.EscapeString(url)) 
+} 
+
+// ----------------------------------------------- 
+
 func main() { 
 
-    route := Route {
-        Name: "toto", 
-        Image: "nginx", 
-        Provider: "docker", 
-    } 
+    CreateLogger() 
+    StartEnv() 
 
-    cd := ContainerDocker{}
+    muxer := http.NewServeMux() 
 
-    etat, err := cd.Create( &route )
-    log.Println( "-->", etat ) 
-    log.Println( "-->", err ) 
-
-    etat2, err := cd.Check( &route )
-    log.Println( "---->", etat2 ) 
-    log.Println( "---->", err ) 
-
-    etat3, err := cd.Start( &route )
-    log.Println( "---->", etat3 ) 
-    log.Println( "---->", err ) 
-
-    etat4, err := cd.Check( &route )
-    log.Println( "---->", etat4 ) 
-    log.Println( "---->", err ) 
-
-    etat5, err := cd.Stop( &route )
-    log.Println( "---->", etat5 ) 
-    log.Println( "---->", err ) 
-
-    etat6, err := cd.Check( &route )
-    log.Println( "---->", etat6 ) 
-    log.Println( "---->", err ) 
-
-    etat7, err := cd.Remove( &route )
-    log.Println( "---->", etat7 ) 
-    log.Println( "---->", err ) 
-
-    etat8, err := cd.Check( &route )
-    log.Println( "---->", etat8 ) 
-    log.Println( "---->", err ) 
-
-
-    // CreateLogger() 
-    // StartEnv() 
-
-    // muxer := http.NewServeMux() 
-
-    // UIPath := GLOBAL_CONF.GetParam( "UI" ) 
-    // if UIPath != "" {
-    //     log.Println( "UI path found :", UIPath ) 
-    //     muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
-    // }
+    UIPath := GLOBAL_CONF.GetParam( "UI" ) 
+    if UIPath != "" {
+        log.Println( "UI path found :", UIPath ) 
+        muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
+    }
     
-    // // muxer.HandleFunc("/redirect/", redirectionHandler) 
+    // muxer.HandleFunc("/redirect/", redirectionHandler) 
     
-    // // muxer.HandleFunc("/lambda/", lambdaHandler)     
+    muxer.HandleFunc("/lambda/", lambdaHandler)     
 
-    // err := http.ListenAndServeTLS(":9090", "server.crt", "server.key", muxer)
-    // if err != nil {
-    //     log.Println( "ListenAndServe :", err ) 
-    //     os.Exit( ExitUndefined )
-    // }
+    err := http.ListenAndServeTLS(":9090", "server.crt", "server.key", muxer)
+    if err != nil {
+        log.Println( "ListenAndServe :", err ) 
+        os.Exit( ExitUndefined )
+    }
 
 }
