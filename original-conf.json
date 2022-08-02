@@ -1,7 +1,6 @@
 {
 	"domain": "https://localhost", 
 	"ui": "./content", 
-	"containers": "/run/user/1000/podman/podman.sock", 
 	"tmpdir": "./tmp", 
 	"prefix": "lambda", 
 	"routes": {
@@ -9,7 +8,9 @@
 			"name": "monconteneur",
 			"env": { "truc" : "machin" }, 
 			"image": "nginx", 
-			"provider": "podman"
+			"provider": "podman", 
+			"timeout" : 250, 
+			"retry": 3 
 		} 
 	} 
 }

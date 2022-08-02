@@ -12,9 +12,10 @@ import (
     "strings"
     "log"
     // "net"
-    // "time"
+    "time"
     "html"
     "fmt" 
+    "sync"
 )
 
 // ----------------------------------------------- 
@@ -51,12 +52,12 @@ var (
 // ----------------------------------------------- 
 
 type Conf struct {
+    Containers Containers 
     Domain string `json:"domain"`
     UI string `json:"ui"`
-    Containers string `json:"containers"`
     TmpDir string `json:"dirtmp"`
     Prefix string `json:"prefix"`
-    Routes map[string]Route `json:"routes"`
+    Routes map[string]*Route `json:"routes"`
 } 
 
 func ConfImport( pathOption ...string ) bool { 
@@ -88,11 +89,11 @@ func (c *Conf) GetParam( key string ) string {
     return ""
 } 
 
-func (c *Conf) GetRoute( key string ) (route Route, err error) { 
+func (c *Conf) GetRoute( key string ) (route *Route, err error) { 
     if route, ok := c.Routes[key]; ok {
         return route, nil
     } 
-    return Route{}, errors.New( "unknow routes" ) 
+    return nil, errors.New( "unknow routes" ) 
 }
 
 func (c *Conf) Export( pathOption ...string ) bool {
@@ -139,9 +140,9 @@ func CreateEnv() bool {
     uiTmpDir := "./content" 
     pathTmpDir := "./tmp" 
     GLOBAL_CONF = Conf { 
+        Containers: Containers{}, 
         Domain: "https://localhost", 
         UI: uiTmpDir, 
-        Containers: "podman", 
         TmpDir: pathTmpDir, 
         Prefix: "lambda", 
     } 
@@ -199,6 +200,7 @@ type Route struct {
     Image string `json:"image"`
     Provider string `json:"provider"`
     Timeout int `json:"timeout"`
+    Retry int `json:"retry"`
     Id string 
 } 
 
@@ -212,10 +214,44 @@ type Container interface {
 
 // ----------------------------------------------- 
 
-type ContainerDocker struct { 
+type Containers struct { 
+    mutex sync.Mutex 
 } 
 
-func ( container *ContainerDocker ) Create ( route *Route ) ( state string, err error ) {
+func ( container *Containers ) Run ( route *Route ) ( err error ) {
+    container.mutex.Lock() 
+    defer container.mutex.Unlock() 
+    if route.Id == "" { 
+        _, err := container.Create( route ) 
+        if err != nil { 
+            return err 
+        } 
+    } 
+    state, err := container.Check( route ) 
+    if err != nil { 
+        return err 
+    } 
+    if state == "running" { 
+        return nil 
+    }
+    started, err := container.Start( route ) 
+    if err != nil || started == false { 
+        return err 
+    } 
+    for i := 0; i < route.Retry; i++ { 
+        time.Sleep( time.Duration( route.Timeout ) * time.Millisecond ) 
+        state, err = container.Check( route ) 
+        if err != nil { 
+            return err 
+        } 
+        if state == "running" {
+            return nil 
+        } 
+    } 
+    return errors.New( "Container has failed to start in time" ) 
+} 
+
+func ( container *Containers ) Create ( route *Route ) ( state string, err error ) {
     if route.Image == "" {
         return "undetermined", errors.New( "Image container has null value" ) 
     }
@@ -244,7 +280,7 @@ func ( container *ContainerDocker ) Create ( route *Route ) ( state string, err 
     return cId, nil 
 }
 
-func ( container *ContainerDocker ) Check ( route *Route ) ( state string, err error ) { 
+func ( container *Containers ) Check ( route *Route ) ( state string, err error ) { 
     // docker container ls -a --filter 'status=created' --format "{{.ID}}" | xargs docker rm 
     if route.Id == "" {
         return "undetermined", errors.New( "ID container has null string" ) 
@@ -266,7 +302,7 @@ func ( container *ContainerDocker ) Check ( route *Route ) ( state string, err e
     return cState, nil 
 }
 
-func ( container *ContainerDocker ) Start ( route *Route ) ( state bool, err error ) {
+func ( container *Containers ) Start ( route *Route ) ( state bool, err error ) {
     if route.Id == "" {
         return false, errors.New( "ID container has null string" ) 
     } 
@@ -284,7 +320,7 @@ func ( container *ContainerDocker ) Start ( route *Route ) ( state bool, err err
     return true, nil 
 }
 
-func ( container *ContainerDocker ) Stop ( route *Route ) ( state bool, err error ) {
+func ( container *Containers ) Stop ( route *Route ) ( state bool, err error ) { 
     if route.Id == "" {
         return false, errors.New( "ID container has null string" ) 
     } 
@@ -302,7 +338,7 @@ func ( container *ContainerDocker ) Stop ( route *Route ) ( state bool, err erro
     return true, nil 
 }
 
-func ( container *ContainerDocker ) Remove ( route *Route ) ( state bool, err error ) {
+func ( container *Containers ) Remove ( route *Route ) ( state bool, err error ) { 
      if route.Id == "" {
         return false, errors.New( "ID container has null string" ) 
     } 
@@ -325,11 +361,20 @@ func ( container *ContainerDocker ) Remove ( route *Route ) ( state bool, err er
 
 func lambdaHandler(w http.ResponseWriter, r *http.Request) { 
     url := r.URL.Path[8:] // "/lambda/" = 8 signes 
-    log.Println( "lambdaHandler url :", url ) 
-
     route, err := GLOBAL_CONF.GetRoute( url ) 
-    log.Println( "lambdaHandler route :", route, err ) 
-
+    if err != nil { 
+        InfoLogger.Println( "unknow desired url :", url, "(", err, ")" ) 
+        w.WriteHeader( 404 ) 
+        return 
+    } 
+    InfoLogger.Println( "known desired url :", url ) 
+    err = GLOBAL_CONF.Containers.Run( route )
+    if err != nil { 
+        WarningLogger.Println( "unknow state of container for route :", url, "(", err, ")" ) 
+        w.WriteHeader( 503 ) 
+        return 
+    } 
+    DebugLogger.Println( "running container for desired route :", url, "(cId", route.Id, ")" ) 
     fmt.Fprintf(w, "ici : %q", html.EscapeString(url)) 
 } 
 
@@ -346,11 +391,9 @@ func main() {
     if UIPath != "" {
         log.Println( "UI path found :", UIPath ) 
         muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
-    }
+    } 
     
-    // muxer.HandleFunc("/redirect/", redirectionHandler) 
-    
-    muxer.HandleFunc("/lambda/", lambdaHandler)     
+    muxer.HandleFunc( "/lambda/", lambdaHandler ) 
 
     err := http.ListenAndServeTLS(":9090", "server.crt", "server.key", muxer)
     if err != nil {
