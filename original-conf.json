@@ -10,7 +10,8 @@
 			"image": "nginx", 
 			"provider": "podman", 
 			"timeout" : 250, 
-			"retry": 3 
+			"retry": 3, 
+			"port": 80 
 		} 
 	} 
 }

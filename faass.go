@@ -13,9 +13,12 @@ import (
     "log"
     // "net"
     "time"
-    "html"
+    // "html"
     "fmt" 
     "sync"
+    "regexp"
+    "strconv" 
+    "io" 
 )
 
 // ----------------------------------------------- 
@@ -23,13 +26,16 @@ import (
 var GLOBAL_CONF_PATH string 
 var GLOBAL_CONF Conf 
 
+var GLOBAL_REGEX_ROUTE_NAME *regexp.Regexp 
+
 // ----------------------------------------------- 
 
 const (
     ExitOk = iota           // toujours '0' 
     ExitUndefined           // toujours '1' 
-    ExitConfCreateKo
-    ExitConfLoadKo
+    ExitConfCreateKo 
+    ExitConfLoadKo 
+    ExitConfRegexUrlKo 
 )
 
 // ----------------------------------------------- 
@@ -41,13 +47,6 @@ var (
     ErrorLogger     *log.Logger
     PanicLogger     *log.Logger
 )
-
-// ----------------------------------------------- 
-
-// func redirectionHandler(w http.ResponseWriter, r *http.Request) {
-//     url := GLOBAL_DOMAIN + r.URL.Path[10:] // "/redirect/" = 10 signes 
-//     http.Redirect(w, r, url, 301)
-// } 
 
 // ----------------------------------------------- 
 
@@ -136,6 +135,14 @@ func CreateLogger() {
     PanicLogger.Println( m )    
 }
 
+func CreateRegexUrl() {
+    regex, err := regexp.Compile( "([a-z0-9_-]+)" ) 
+    if err != nil {
+        os.Exit( ExitConfRegexUrlKo )
+    } 
+    GLOBAL_REGEX_ROUTE_NAME = regex 
+}
+
 func CreateEnv() bool {
     uiTmpDir := "./content" 
     pathTmpDir := "./tmp" 
@@ -147,15 +154,15 @@ func CreateEnv() bool {
         Prefix: "lambda", 
     } 
     if ! GLOBAL_CONF.Export() {
-        log.Println( "Unable to create environment : conf" ) 
+        ErrorLogger.Println( "Unable to create environment : conf" ) 
         return false 
     }
     if err := os.Mkdir( uiTmpDir, os.ModePerm ); err != nil {
-        log.Println( "Unable to create environment : content dir (", err, "); pass" ) 
+        WarningLogger.Println( "Unable to create environment : content dir (", err, "); pass" ) 
         return false 
     }
     if err := os.Mkdir( pathTmpDir, os.ModePerm ); err != nil {
-        log.Println( "Unable to create environment : tmp dir (", err, "); pass" ) 
+        WarningLogger.Println( "Unable to create environment : tmp dir (", err, "); pass" ) 
         return false 
     } 
     return true 
@@ -174,7 +181,7 @@ func StartEnv() {
         } 
     } 
     if !ConfImport() { 
-        log.Println( "Unable to load configuration" ) 
+        PanicLogger.Println( "Unable to load configuration" ) 
         os.Exit( ExitConfLoadKo )
     } 
 } 
@@ -200,8 +207,10 @@ type Route struct {
     Image string `json:"image"`
     Provider string `json:"provider"`
     Timeout int `json:"timeout"`
-    Retry int `json:"retry"`
+    Retry int `json:"retry"` 
+    Port int `json:"port"` 
     Id string 
+    IpAdress string 
 } 
 
 // ----------------------------------------------- 
@@ -235,6 +244,14 @@ func ( container *Containers ) Run ( route *Route ) ( err error ) {
         return nil 
     }
     started, err := container.Start( route ) 
+    cIpAdress, err := container.GetInfos( 
+        route, 
+        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", 
+    ) 
+    if err != nil { 
+        return err 
+    } 
+    route.IpAdress = cIpAdress 
     if err != nil || started == false { 
         return err 
     } 
@@ -276,7 +293,21 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
         log.Fatal( "container check ", err ) 
         // return "undetermined", errors.New( cId ) 
     } 
-    route.Id = cId 
+    route.Id = cId  
+    cmd = exec.Command(
+        "docker", 
+        "inspect", 
+        "-f", 
+        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", 
+        cId, 
+    ) 
+    o, err = cmd.Output() 
+    fmt.Println( 
+        string(o), 
+        err, 
+    )
+    cIP := strings.TrimSuffix( string( o ), "\n" ) 
+    route.IpAdress = cIP 
     return cId, nil 
 }
 
@@ -357,10 +388,35 @@ func ( container *Containers ) Remove ( route *Route ) ( state bool, err error )
     return true, nil 
 }
 
+func ( container *Containers ) GetInfos ( route *Route, pattern string ) ( infos string, err error ) { 
+     if route.Id == "" {
+        return "", errors.New( "ID container has null string" ) 
+    } 
+    cmd := exec.Command( 
+        "docker", 
+        "container", 
+        "inspect", 
+        "-f",
+        pattern, 
+        route.Id, 
+    ) 
+    o, err := cmd.Output() 
+    cInfos := strings.TrimSuffix( string( o ), "\n" )  
+    if err != nil { 
+        return "", errors.New( route.Id ) 
+    } 
+    return cInfos, nil 
+}
+
 // ----------------------------------------------- 
 
 func lambdaHandler(w http.ResponseWriter, r *http.Request) { 
     url := r.URL.Path[8:] // "/lambda/" = 8 signes 
+    if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true { 
+        InfoLogger.Println( "bad desired url :", url ) 
+        w.WriteHeader( 400 ) 
+        return 
+    } 
     route, err := GLOBAL_CONF.GetRoute( url ) 
     if err != nil { 
         InfoLogger.Println( "unknow desired url :", url, "(", err, ")" ) 
@@ -374,8 +430,47 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader( 503 ) 
         return 
     } 
-    DebugLogger.Println( "running container for desired route :", url, "(cId", route.Id, ")" ) 
-    fmt.Fprintf(w, "ici : %q", html.EscapeString(url)) 
+    DebugLogger.Println( "running container for desired route :", route.IpAdress, "(cId", route.Id, ")" ) 
+
+    url_transfert := r.URL
+    url_transfert.Host = route.IpAdress+":"+strconv.Itoa( route.Port ) 
+
+    // fmt.Sprintf("%s://%s%s", proxyScheme, proxyHost, req.RequestURI)
+
+    proxyReq, err := http.NewRequest( 
+        r.Method, 
+        "http://"+url_transfert.Host, 
+        r.Body, 
+    ) 
+    if err != nil {
+        WarningLogger.Println( "bad gateway for container as route :", url, "(", err, ")" ) 
+        w.WriteHeader( 502 ) 
+        return 
+    } 
+    proxyReq.Header.Set( "Host", r.Host )
+    proxyReq.Header.Set( "X-Forwarded-For", r.RemoteAddr )
+    for header, values := range r.Header { 
+        for _, value := range values { 
+            proxyReq.Header.Add(header, value)
+        }
+    }
+    client := &http.Client{
+        Timeout: time.Duration( route.Timeout ) * time.Millisecond, 
+    }
+    proxyRes, err := client.Do( proxyReq ) 
+    if err != nil {
+        WarningLogger.Println( "request failed to container as route :", url, "(", err, ")" ) 
+        w.WriteHeader( 500 ) 
+        return 
+    }
+    wH := w.Header()
+    for header, values := range proxyRes.Header { 
+        for _, value := range values { 
+            wH.Add(header, value)
+        }
+    } 
+    w.WriteHeader( proxyRes.StatusCode )
+    io.Copy( w, proxyRes.Body )
 } 
 
 // ----------------------------------------------- 
@@ -385,11 +480,13 @@ func main() {
     CreateLogger() 
     StartEnv() 
 
+    CreateRegexUrl() 
+
     muxer := http.NewServeMux() 
 
     UIPath := GLOBAL_CONF.GetParam( "UI" ) 
     if UIPath != "" {
-        log.Println( "UI path found :", UIPath ) 
+        InfoLogger.Println( "UI path found :", UIPath ) 
         muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
     } 
     
@@ -397,7 +494,7 @@ func main() {
 
     err := http.ListenAndServeTLS(":9090", "server.crt", "server.key", muxer)
     if err != nil {
-        log.Println( "ListenAndServe :", err ) 
+        InfoLogger.Println( "ListenAndServe :", err ) 
         os.Exit( ExitUndefined )
     }
 
