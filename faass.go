@@ -22,15 +22,14 @@ import (
     "net/http"
     "strings"
     "log"
-    // "net"
-    "time"
-    // "html"
+    "time" 
     "fmt" 
     "sync"
     "regexp"
     "strconv" 
     "io" 
     "unicode/utf8" 
+    "path/filepath" 
 )
 
 // ----------------------------------------------- 
@@ -66,6 +65,7 @@ type Conf struct {
     Containers Containers 
     Domain string `json:"domain"`
     UI string `json:"ui"`
+    TmpDir string `json:"tmp"`
     Prefix string `json:"prefix"`
     Routes map[string]*Route `json:"routes"`
 } 
@@ -154,12 +154,34 @@ func CreateRegexUrl() {
     GLOBAL_REGEX_ROUTE_NAME = regex 
 }
 
-func CreateEnv() bool {
-    uiTmpDir := "./content" 
+func GetRootPath() (rootPath string, err error) {
+    ex, err := os.Executable()
+    if err != nil {
+        WarningLogger.Println( "unable to get current path of executable : ", err ) 
+        return "", errors.New( "unable to get current path of executable" ) 
+    } 
+    rootPath = filepath.Dir( ex ) 
+    return rootPath, nil 
+} 
+
+func CreateEnv() bool { 
+    rootPath, err := GetRootPath()
+    if err != nil {
+        return false 
+    }
+    uiTmpDir := filepath.Join( 
+        rootPath,
+        "./content", 
+    ) 
+    pathTmpDir := filepath.Join( 
+        rootPath,
+        "./tmp", 
+    ) 
     GLOBAL_CONF = Conf { 
         Containers: Containers{}, 
         Domain: "https://localhost", 
         UI: uiTmpDir,  
+        TmpDir: pathTmpDir, 
         Prefix: "lambda", 
     } 
     if ! GLOBAL_CONF.Export() {
@@ -168,6 +190,10 @@ func CreateEnv() bool {
     }
     if err := os.Mkdir( uiTmpDir, os.ModePerm ); err != nil {
         WarningLogger.Println( "Unable to create environment : content dir (", err, "); pass" ) 
+        return false 
+    }
+    if err := os.Mkdir( pathTmpDir, os.ModePerm ); err != nil {
+        WarningLogger.Println( "Unable to create environment : tmp dir (", err, "); pass" ) 
         return false 
     }
     return true 
@@ -189,6 +215,20 @@ func StartEnv() {
         PanicLogger.Println( "Unable to load configuration" ) 
         os.Exit( ExitConfLoadKo )
     } 
+
+    rootPath, err := GetRootPath()
+    if err != nil {
+        PanicLogger.Println( "Unable to root path of executable" ) 
+        os.Exit( ExitConfLoadKo )
+    }
+    GLOBAL_CONF.UI = filepath.Join( 
+        rootPath,
+        "./content", 
+    ) 
+    GLOBAL_CONF.TmpDir = filepath.Join( 
+        rootPath,
+        "./tmp", 
+    ) 
 } 
 
 // ----------------------------------------------- 
@@ -197,7 +237,6 @@ type Route struct {
     Name string `json:"name"` 
     Environment map[string]string `json:"env"`
     Image string `json:"image"`
-    Provider string `json:"provider"`
     Timeout int `json:"timeout"`
     Retry int `json:"retry"` 
     Port int `json:"port"` 
@@ -262,27 +301,50 @@ func ( container *Containers ) Run ( route *Route ) ( err error ) {
 
 func ( container *Containers ) Create ( route *Route ) ( state string, err error ) {
     if route.Image == "" {
-        return "undetermined", errors.New( "Image container has null value" ) 
+        return "failed", errors.New( "Image container has null value" ) 
     }
     if route.Name == "" {
-        return "undetermined", errors.New( "Name container has null value" ) 
+        return "failed", errors.New( "Name container has null value" ) 
     }
-    cmd := exec.Command(
+    fileEnvPath := filepath.Join( 
+        GLOBAL_CONF.GetParam("TmpDir"), 
+        route.Name+".env",  
+    )
+    fileEnv, err := os.Create( fileEnvPath ) 
+    defer fileEnv.Close()
+    if err != nil {
+        ErrorLogger.Println( "unable to create container file env : ", err ) 
+        return "failed", errors.New( "env file for container failed" ) 
+    } 
+    for key, value := range route.Environment { 
+        fileEnv.WriteString( key+"="+value+"\n" ) 
+    } 
+    pathContainerTmpDir := filepath.Join( 
+        GLOBAL_CONF.GetParam("TmpDir"), 
+        route.Name,  
+    )
+    if err := os.MkdirAll( pathContainerTmpDir, os.ModePerm ); err != nil {
+        ErrorLogger.Println( "unable to create tmp dir for container : ", err ) 
+        return "failed", errors.New( "tmp dir for container failed" ) 
+    }
+    cmd := exec.Command( 
         "docker", 
         "container", 
         "create", 
         "--label", 
         "faass=true", 
+        "--mount", 
+        "type=bind,source="+pathContainerTmpDir+",target=/hostdir",
         "--hostname", 
         route.Name, 
-        "--env", 
-        "FAASS=1", // Environment map[string]string `json:"env"`
+        "--env-file", 
+        fileEnvPath, 
         route.Image, 
     )
     o, err := cmd.CombinedOutput() 
     cId := strings.TrimSuffix( string( o ), "\n" ) 
     if err != nil { 
-        ErrorLogger.Println( "container check ", err ) 
+        ErrorLogger.Println( "container create in error : ", err ) 
         return "undetermined", errors.New( cId ) 
     } 
     route.Id = cId  

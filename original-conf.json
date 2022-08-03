@@ -1,13 +1,13 @@
 {
 	"domain": "https://localhost", 
 	"ui": "./content", 
+	"tmp": "./tmp",
 	"prefix": "lambda", 
 	"routes": {
 		"toto" : { 
 			"name": "monconteneur",
 			"env": { "truc" : "machin" }, 
 			"image": "nginx", 
-			"provider": "podman", 
 			"timeout" : 250, 
 			"retry": 3, 
 			"port": 80 
