@@ -1,7 +1,6 @@
 {
 	"domain": "https://localhost", 
 	"ui": "./content", 
-	"tmpdir": "./tmp", 
 	"prefix": "lambda", 
 	"routes": {
 		"toto" : { 

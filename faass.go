@@ -1,6 +1,17 @@
 package main
 
-import (
+/*
+    FaasS = Function as a (Simple) Service
+    ---
+    Created by Julien Garderon (Nothus) 
+    from August 01 to 03, 2022 
+    MIT Licence
+    ---
+    This is a POC - Proof of Concept, based on the idea of the OpenFaas project 
+    NOT INTENDED FOR PRODUCTION 
+*/ 
+
+import ( 
     "encoding/json" 
     "io/ioutil"
     "os"
@@ -19,6 +30,7 @@ import (
     "regexp"
     "strconv" 
     "io" 
+    "unicode/utf8" 
 )
 
 // ----------------------------------------------- 
@@ -54,7 +66,6 @@ type Conf struct {
     Containers Containers 
     Domain string `json:"domain"`
     UI string `json:"ui"`
-    TmpDir string `json:"dirtmp"`
     Prefix string `json:"prefix"`
     Routes map[string]*Route `json:"routes"`
 } 
@@ -136,7 +147,7 @@ func CreateLogger() {
 }
 
 func CreateRegexUrl() {
-    regex, err := regexp.Compile( "([a-z0-9_-]+)" ) 
+    regex, err := regexp.Compile( "^([a-z0-9_-]+)" ) 
     if err != nil {
         os.Exit( ExitConfRegexUrlKo )
     } 
@@ -145,12 +156,10 @@ func CreateRegexUrl() {
 
 func CreateEnv() bool {
     uiTmpDir := "./content" 
-    pathTmpDir := "./tmp" 
     GLOBAL_CONF = Conf { 
         Containers: Containers{}, 
         Domain: "https://localhost", 
-        UI: uiTmpDir, 
-        TmpDir: pathTmpDir, 
+        UI: uiTmpDir,  
         Prefix: "lambda", 
     } 
     if ! GLOBAL_CONF.Export() {
@@ -161,10 +170,6 @@ func CreateEnv() bool {
         WarningLogger.Println( "Unable to create environment : content dir (", err, "); pass" ) 
         return false 
     }
-    if err := os.Mkdir( pathTmpDir, os.ModePerm ); err != nil {
-        WarningLogger.Println( "Unable to create environment : tmp dir (", err, "); pass" ) 
-        return false 
-    } 
     return true 
 }
 
@@ -185,19 +190,6 @@ func StartEnv() {
         os.Exit( ExitConfLoadKo )
     } 
 } 
-
-// ----------------------------------------------- 
-
-// func ClientContainer( path string ) { 
-//     c := http.Client{ Timeout: time.Duration(1) * time.Second } 
-//     resp, err := c.Get( path ) 
-//     if err != nil {
-//         fmt.Printf("Error %s", err)
-//         return
-//     }
-//     defer resp.Body.Close()
-//     body, err := ioutil.ReadAll(resp.Body) 
-// } 
 
 // ----------------------------------------------- 
 
@@ -280,7 +272,7 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
         "container", 
         "create", 
         "--label", 
-        "faasS=true", 
+        "faass=true", 
         "--hostname", 
         route.Name, 
         "--env", 
@@ -290,8 +282,8 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
     o, err := cmd.CombinedOutput() 
     cId := strings.TrimSuffix( string( o ), "\n" ) 
     if err != nil { 
-        log.Fatal( "container check ", err ) 
-        // return "undetermined", errors.New( cId ) 
+        ErrorLogger.Println( "container check ", err ) 
+        return "undetermined", errors.New( cId ) 
     } 
     route.Id = cId  
     cmd = exec.Command(
@@ -327,8 +319,8 @@ func ( container *Containers ) Check ( route *Route ) ( state string, err error 
     o, err := cmd.CombinedOutput() 
     cState := strings.TrimSuffix( string( o ), "\n" )  
     if err != nil { 
-        log.Fatal( "container check ", err ) 
-        // return "undetermined", errors.New( cState ) 
+        ErrorLogger.Println( "container check ", err ) 
+        return "undetermined", errors.New( cState ) 
     } 
     return cState, nil 
 }
@@ -417,33 +409,46 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader( 400 ) 
         return 
     } 
-    route, err := GLOBAL_CONF.GetRoute( url ) 
+    InfoLogger.Println( "known real desired url :", r.URL ) 
+    rNameSize := utf8.RuneCountInString( GLOBAL_REGEX_ROUTE_NAME.FindStringSubmatch( url )[1] )
+    rName := url[:rNameSize]
+    rRest := url[rNameSize:]
+    if rRest == "" { 
+        rRest += "/" 
+    } 
+    route, err := GLOBAL_CONF.GetRoute( rName ) 
     if err != nil { 
-        InfoLogger.Println( "unknow desired url :", url, "(", err, ")" ) 
+        InfoLogger.Println( "unknow desired url :", rName, "(", err, ")" ) 
         w.WriteHeader( 404 ) 
         return 
     } 
-    InfoLogger.Println( "known desired url :", url ) 
+    InfoLogger.Println( "known desired url :", rName ) 
     err = GLOBAL_CONF.Containers.Run( route )
     if err != nil { 
-        WarningLogger.Println( "unknow state of container for route :", url, "(", err, ")" ) 
+        WarningLogger.Println( "unknow state of container for route :", rName, "(", err, ")" ) 
         w.WriteHeader( 503 ) 
         return 
     } 
     DebugLogger.Println( "running container for desired route :", route.IpAdress, "(cId", route.Id, ")" ) 
-
-    url_transfert := r.URL
-    url_transfert.Host = route.IpAdress+":"+strconv.Itoa( route.Port ) 
-
-    // fmt.Sprintf("%s://%s%s", proxyScheme, proxyHost, req.RequestURI)
-
+    if r.URL.RawQuery != "" {
+        rRest += "?"+r.URL.RawQuery 
+    }
+    if r.URL.RawFragment != "" {
+        rRest += "#"+r.URL.RawFragment 
+    }
+    dURL := fmt.Sprintf(
+        "http://%s%s",
+        route.IpAdress+":"+strconv.Itoa( route.Port ) , 
+        rRest, 
+    )
+    DebugLogger.Println( "new url for desired route :", dURL, "(cId", route.Id, ")" ) 
     proxyReq, err := http.NewRequest( 
         r.Method, 
-        "http://"+url_transfert.Host, 
+        dURL, 
         r.Body, 
     ) 
     if err != nil {
-        WarningLogger.Println( "bad gateway for container as route :", url, "(", err, ")" ) 
+        WarningLogger.Println( "bad gateway for container as route :", rName, "(", err, ")" ) 
         w.WriteHeader( 502 ) 
         return 
     } 
@@ -459,10 +464,11 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     }
     proxyRes, err := client.Do( proxyReq ) 
     if err != nil {
-        WarningLogger.Println( "request failed to container as route :", url, "(", err, ")" ) 
+        WarningLogger.Println( "request failed to container as route :", rName, "(", err, ")" ) 
         w.WriteHeader( 500 ) 
         return 
     }
+    DebugLogger.Println( "result of desired route :", proxyRes.StatusCode, "(cId", route.Id, ")" ) 
     wH := w.Header()
     for header, values := range proxyRes.Header { 
         for _, value := range values { 
