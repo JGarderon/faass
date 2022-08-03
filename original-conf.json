@@ -1,5 +1,6 @@
 {
 	"domain": "https://localhost", 
+	"listen": 9090, 
 	"ui": "./content", 
 	"tmp": "./tmp",
 	"prefix": "lambda", 

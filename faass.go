@@ -64,6 +64,7 @@ var (
 type Conf struct {
     Containers Containers 
     Domain string `json:"domain"`
+    IncomingPort int `json:"listen"`
     UI string `json:"ui"`
     TmpDir string `json:"tmp"`
     Prefix string `json:"prefix"`
@@ -180,6 +181,7 @@ func CreateEnv() bool {
     GLOBAL_CONF = Conf { 
         Containers: Containers{}, 
         Domain: "https://localhost", 
+        IncomingPort: 9090, 
         UI: uiTmpDir,  
         TmpDir: pathTmpDir, 
         Prefix: "lambda", 
@@ -215,7 +217,12 @@ func StartEnv() {
         PanicLogger.Println( "Unable to load configuration" ) 
         os.Exit( ExitConfLoadKo )
     } 
-
+    if GLOBAL_CONF.IncomingPort < 1 || GLOBAL_CONF.IncomingPort > 65535 { 
+        PanicLogger.Println( 
+            "Bad configuration : incorrect port '"+strconv.Itoa( GLOBAL_CONF.IncomingPort )+"'",  
+        ) 
+        os.Exit( ExitConfLoadKo )
+    } 
     rootPath, err := GetRootPath()
     if err != nil {
         PanicLogger.Println( "Unable to root path of executable" ) 
@@ -538,8 +545,17 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
         }
     } 
     w.WriteHeader( proxyRes.StatusCode )
-    io.Copy( w, proxyRes.Body )
+    io.Copy( w, proxyRes.Body ) 
 } 
+
+// ----------------------------------------------- 
+
+func StartServer () {
+
+}
+
+func StopServer ( ) {  
+}
 
 // ----------------------------------------------- 
 
@@ -560,7 +576,12 @@ func main() {
     
     muxer.HandleFunc( "/lambda/", lambdaHandler ) 
 
-    err := http.ListenAndServeTLS(":9090", "server.crt", "server.key", muxer)
+    err := http.ListenAndServeTLS( 
+        ":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ), 
+        "server.crt", 
+        "server.key", 
+        muxer, 
+    ) 
     if err != nil {
         InfoLogger.Println( "ListenAndServe :", err ) 
         os.Exit( ExitUndefined )
