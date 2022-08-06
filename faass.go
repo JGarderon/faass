@@ -20,6 +20,7 @@ import (
     "errors" 
     "flag"
     "net/http"
+    "net"
     "strings"
     "log"
     "time" 
@@ -30,6 +31,9 @@ import (
     "io" 
     "unicode/utf8" 
     "path/filepath" 
+    "os/signal" 
+    "syscall" 
+    "context" 
 )
 
 // ----------------------------------------------- 
@@ -363,10 +367,6 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
         cId, 
     ) 
     o, err = cmd.Output() 
-    fmt.Println( 
-        string(o), 
-        err, 
-    )
     cIP := strings.TrimSuffix( string( o ), "\n" ) 
     route.IpAdress = cIP 
     return cId, nil 
@@ -550,11 +550,16 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
 
 // ----------------------------------------------- 
 
-func StartServer () {
-
-}
-
-func StopServer ( ) {  
+func RunServer ( httpServer *http.Server ) { 
+    defer InfoLogger.Println( "Shutdown ListenAndServeTLS terminated" ) 
+    err := httpServer.ListenAndServeTLS( 
+        "server.crt", 
+        "server.key", 
+    ) 
+    if err != nil && err != http.ErrServerClosed {
+        PanicLogger.Println( "ListenAndServe err :", err ) 
+        os.Exit( ExitUndefined )
+    } 
 }
 
 // ----------------------------------------------- 
@@ -566,6 +571,8 @@ func main() {
 
     CreateRegexUrl() 
 
+    ctx := context.Background() 
+
     muxer := http.NewServeMux() 
 
     UIPath := GLOBAL_CONF.GetParam( "UI" ) 
@@ -576,15 +583,30 @@ func main() {
     
     muxer.HandleFunc( "/lambda/", lambdaHandler ) 
 
-    err := http.ListenAndServeTLS( 
-        ":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ), 
-        "server.crt", 
-        "server.key", 
-        muxer, 
-    ) 
-    if err != nil {
-        InfoLogger.Println( "ListenAndServe :", err ) 
-        os.Exit( ExitUndefined )
+    httpServer := &http.Server{
+        Addr: ":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ), 
+        Handler:     muxer,
+        BaseContext: func(_ net.Listener) context.Context { return ctx },
+    } 
+
+    go RunServer( httpServer )
+
+    signalChan := make(chan os.Signal, 1)
+
+    signal.Notify( 
+        signalChan,
+        syscall.SIGHUP, 
+        syscall.SIGINT, 
+        syscall.SIGQUIT, 
+    )
+    <-signalChan
+    InfoLogger.Println("os.Interrupt - shutting down...\n") 
+
+    if err := httpServer.Shutdown( ctx ); err != nil {
+        log.Printf("shutdown error: %v\n", err)
+        defer os.Exit(100) 
     }
+
+    log.Printf("gracefully stopped\n") 
 
 }
