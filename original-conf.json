@@ -1,6 +1,7 @@
 {
 	"domain": "https://localhost", 
 	"listen": 9090, 
+	"delay": 5, 
 	"ui": "./content", 
 	"tmp": "./tmp",
 	"prefix": "lambda", 
@@ -10,6 +11,7 @@
 			"env": { "truc" : "machin" }, 
 			"image": "nginx", 
 			"timeout" : 250, 
+			"delay": 8, 
 			"retry": 3, 
 			"port": 80 
 		} 

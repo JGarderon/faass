@@ -4,11 +4,11 @@ package main
     FaasS = Function as a (Simple) Service
     ---
     Created by Julien Garderon (Nothus) 
-    from August 01 to 03, 2022 
+    from August 01 to 07, 2022 
     MIT Licence
     ---
-    This is a POC - Proof of Concept, based on the idea of the OpenFaas project 
-    NOT INTENDED FOR PRODUCTION 
+    This is a POC - Proof of Concept -, based on the idea of the OpenFaas project 
+    /!\ NOT INTENDED FOR PRODUCTION, only dev /!\
 */ 
 
 import ( 
@@ -43,6 +43,8 @@ var GLOBAL_CONF Conf
 
 var GLOBAL_REGEX_ROUTE_NAME *regexp.Regexp 
 
+var GLOBAL_WAIT_GROUP sync.WaitGroup
+
 // ----------------------------------------------- 
 
 const (
@@ -69,6 +71,7 @@ type Conf struct {
     Containers Containers 
     Domain string `json:"domain"`
     IncomingPort int `json:"listen"`
+    DelayCleaningContainers int `json:"delay"`
     UI string `json:"ui"`
     TmpDir string `json:"tmp"`
     Prefix string `json:"prefix"`
@@ -84,7 +87,7 @@ func ConfImport( pathOption ...string ) bool {
     if err != nil {
         log.Println( "ConfImport (open) :", err ) 
         return false
-    }
+    } 
     defer jsonFileInput.Close() 
     byteValue, err := ioutil.ReadAll(jsonFileInput)
     if err != nil {
@@ -92,6 +95,12 @@ func ConfImport( pathOption ...string ) bool {
         return false
     }
     json.Unmarshal( byteValue, &GLOBAL_CONF ) 
+    if GLOBAL_CONF.DelayCleaningContainers < 5 {
+        GLOBAL_CONF.DelayCleaningContainers = 5 
+    }
+    if GLOBAL_CONF.DelayCleaningContainers > 60 { 
+        GLOBAL_CONF.DelayCleaningContainers = 60  
+    }
     return true 
 } 
 
@@ -212,7 +221,7 @@ func StartEnv() {
     GLOBAL_CONF_PATH = string( *confPath ) 
     if *prepareEnv { 
         if CreateEnv() { 
-            os.Exit( ExitOk )
+            os.Exit( ExitOk ) 
         } else { 
             os.Exit( ExitConfCreateKo ) 
         } 
@@ -250,7 +259,9 @@ type Route struct {
     Image string `json:"image"`
     Timeout int `json:"timeout"`
     Retry int `json:"retry"` 
+    Delay int `json:"delay"` 
     Port int `json:"port"` 
+    LastRequest time.Time  
     Id string 
     IpAdress string 
 } 
@@ -492,6 +503,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
         return 
     } 
     InfoLogger.Println( "known desired url :", rName ) 
+    route.LastRequest = time.Now() 
     err = GLOBAL_CONF.Containers.Run( route )
     if err != nil { 
         WarningLogger.Println( "unknow state of container for route :", rName, "(", err, ")" ) 
@@ -550,6 +562,59 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
 
 // ----------------------------------------------- 
 
+func CleanContainers( ctx context.Context, force bool ) {
+    GLOBAL_WAIT_GROUP.Add( 1 ) 
+    for {
+        tt := time.After( time.Duration( GLOBAL_CONF.DelayCleaningContainers ) * time.Second ) 
+        select {
+        case <-tt: 
+            for routeName := range GLOBAL_CONF.Routes { 
+                route := GLOBAL_CONF.Routes[routeName] 
+                if route.Id != "" { 
+                    routeDelayLastRequest := route.LastRequest.Add( time.Duration( route.Delay ) * time.Second )
+                    GLOBAL_CONF.Containers.mutex.Lock() 
+                    state, err := GLOBAL_CONF.Containers.Check( route )  
+                    if err != nil { 
+                        WarningLogger.Println( "Container ", route.Name, "(cId ", route.Id, ") : state unknow ; ", err ) 
+                    } else if state != "exited" && routeDelayLastRequest.Before( time.Now() ) {
+                        _, err := GLOBAL_CONF.Containers.Stop( route )
+                        if err != nil { 
+                            WarningLogger.Println( "Container ", route.Name, "(cId ", route.Id, ") not stopped - maybe he is still active ?" ) 
+                        } else { 
+                            InfoLogger.Println( "Container", route.Name, "(cId ", route.Id, ") stopped"  ) 
+                        } 
+                    } 
+                    GLOBAL_CONF.Containers.mutex.Unlock()
+                }
+            } 
+        case <-ctx.Done():
+            GLOBAL_CONF.Containers.mutex.Lock() 
+            defer GLOBAL_CONF.Containers.mutex.Unlock() 
+            defer GLOBAL_WAIT_GROUP.Done() 
+            for routeName := range GLOBAL_CONF.Routes { 
+                route := GLOBAL_CONF.Routes[routeName] 
+                rId := route.Id 
+                _, err := GLOBAL_CONF.Containers.Stop( route )
+                if err != nil { 
+                    WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" ) 
+                } else { 
+                    InfoLogger.Println( "Container ", route.Name, "(cId ", rId, ") stopped" ) 
+                    time.Sleep( time.Duration( route.Timeout ) * time.Millisecond ) 
+                    _, err := GLOBAL_CONF.Containers.Remove( route )
+                    if err != nil { 
+                        WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
+                    } else {
+                        InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" ) 
+                    } 
+                } 
+            } 
+            return 
+        }
+    }
+}
+
+// ----------------------------------------------- 
+
 func RunServer ( httpServer *http.Server ) { 
     defer InfoLogger.Println( "Shutdown ListenAndServeTLS terminated" ) 
     err := httpServer.ListenAndServeTLS( 
@@ -572,6 +637,7 @@ func main() {
     CreateRegexUrl() 
 
     ctx := context.Background() 
+    ctx, cancel := context.WithCancel( context.Background() ) 
 
     muxer := http.NewServeMux() 
 
@@ -589,9 +655,10 @@ func main() {
         BaseContext: func(_ net.Listener) context.Context { return ctx },
     } 
 
-    go RunServer( httpServer )
-
     signalChan := make(chan os.Signal, 1)
+
+    go CleanContainers( ctx, false ) 
+    go RunServer( httpServer )
 
     signal.Notify( 
         signalChan,
@@ -603,10 +670,14 @@ func main() {
     InfoLogger.Println("os.Interrupt - shutting down...\n") 
 
     if err := httpServer.Shutdown( ctx ); err != nil {
-        log.Printf("shutdown error: %v\n", err)
+        PanicLogger.Printf("shutdown error: %v\n", err)
         defer os.Exit(100) 
-    }
+    } 
 
-    log.Printf("gracefully stopped\n") 
+    cancel() 
+
+    GLOBAL_WAIT_GROUP.Wait() 
+
+    InfoLogger.Printf("gracefully stopped\n") 
 
 }
