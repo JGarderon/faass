@@ -20,7 +20,6 @@ import (
     "errors" 
     "flag"
     "net/http"
-    "net"
     "strings"
     "log"
     "time" 
@@ -33,7 +32,7 @@ import (
     "path/filepath" 
     "os/signal" 
     "syscall" 
-    "context" 
+    "context"
 )
 
 // ----------------------------------------------- 
@@ -53,6 +52,7 @@ const (
     ExitConfCreateKo 
     ExitConfLoadKo 
     ExitConfRegexUrlKo 
+    ExitConfShuttingServerFailed 
 )
 
 // ----------------------------------------------- 
@@ -142,6 +142,21 @@ func (c *Conf) Export( pathOption ...string ) bool {
         return false
     } 
     return true 
+} 
+
+// ----------------------------------------------- 
+
+type Route struct { 
+    Name string `json:"name"` 
+    Environment map[string]string `json:"env"`
+    Image string `json:"image"`
+    Timeout int `json:"timeout"`
+    Retry int `json:"retry"` 
+    Delay int `json:"delay"` 
+    Port int `json:"port"` 
+    LastRequest time.Time  
+    Id string 
+    IpAdress string 
 } 
 
 // ----------------------------------------------- 
@@ -249,21 +264,6 @@ func StartEnv() {
         rootPath,
         "./tmp", 
     ) 
-} 
-
-// ----------------------------------------------- 
-
-type Route struct { 
-    Name string `json:"name"` 
-    Environment map[string]string `json:"env"`
-    Image string `json:"image"`
-    Timeout int `json:"timeout"`
-    Retry int `json:"retry"` 
-    Delay int `json:"delay"` 
-    Port int `json:"port"` 
-    LastRequest time.Time  
-    Id string 
-    IpAdress string 
 } 
 
 // ----------------------------------------------- 
@@ -594,17 +594,19 @@ func CleanContainers( ctx context.Context, force bool ) {
             for routeName := range GLOBAL_CONF.Routes { 
                 route := GLOBAL_CONF.Routes[routeName] 
                 rId := route.Id 
-                _, err := GLOBAL_CONF.Containers.Stop( route )
-                if err != nil { 
-                    WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" ) 
-                } else { 
-                    InfoLogger.Println( "Container ", route.Name, "(cId ", rId, ") stopped" ) 
-                    time.Sleep( time.Duration( route.Timeout ) * time.Millisecond ) 
-                    _, err := GLOBAL_CONF.Containers.Remove( route )
+                if rId != "" { 
+                    _, err := GLOBAL_CONF.Containers.Stop( route )
                     if err != nil { 
-                        WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
-                    } else {
-                        InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" ) 
+                        WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" ) 
+                    } else { 
+                        InfoLogger.Println( "Container ", route.Name, "(cId ", rId, ") stopped" ) 
+                        time.Sleep( time.Duration( route.Timeout ) * time.Millisecond ) 
+                        _, err := GLOBAL_CONF.Containers.Remove( route )
+                        if err != nil { 
+                            WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
+                        } else {
+                            InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" ) 
+                        } 
                     } 
                 } 
             } 
@@ -652,7 +654,6 @@ func main() {
     httpServer := &http.Server{
         Addr: ":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ), 
         Handler:     muxer,
-        BaseContext: func(_ net.Listener) context.Context { return ctx },
     } 
 
     signalChan := make(chan os.Signal, 1)
@@ -667,17 +668,17 @@ func main() {
         syscall.SIGQUIT, 
     )
     <-signalChan
-    InfoLogger.Println("os.Interrupt - shutting down...\n") 
+    InfoLogger.Println("interrupt received ; shutting down") 
 
     if err := httpServer.Shutdown( ctx ); err != nil {
         PanicLogger.Printf("shutdown error: %v\n", err)
-        defer os.Exit(100) 
+        defer os.Exit( ExitConfShuttingServerFailed ) 
     } 
 
     cancel() 
 
     GLOBAL_WAIT_GROUP.Wait() 
 
-    InfoLogger.Printf("gracefully stopped\n") 
+    InfoLogger.Printf("process gracefully stopped") 
 
 }
