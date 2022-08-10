@@ -37,6 +37,7 @@ import (
 
 var GLOBAL_CONF_PATH string
 var GLOBAL_CONF Conf
+var GLOBAL_CONF_MUTEXT sync.Mutex 
 
 var GLOBAL_REGEX_ROUTE_NAME *regexp.Regexp
 
@@ -90,17 +91,23 @@ func ConfImport( pathOption ...string ) bool {
     log.Println( "ConfImport (ioutil) :", err )
     return false
   }
+  GLOBAL_CONF_MUTEXT.Lock() 
+  defer GLOBAL_CONF_MUTEXT.Unlock() 
   json.Unmarshal( byteValue, &GLOBAL_CONF )
   if GLOBAL_CONF.DelayCleaningContainers < 5 {
     GLOBAL_CONF.DelayCleaningContainers = 5
+    WarningLogger.Println( "new value for delay cleaning containers : min 5 (seconds)" ) 
   }
   if GLOBAL_CONF.DelayCleaningContainers > 60 {
     GLOBAL_CONF.DelayCleaningContainers = 60 
+    WarningLogger.Println( "new value for delay cleaning containers : max 60 (seconds)" ) 
   }
   return true
 }
 
 func (c *Conf) GetParam( key string ) string {
+  GLOBAL_CONF_MUTEXT.Lock() 
+  defer GLOBAL_CONF_MUTEXT.Unlock() 
   e := reflect.ValueOf( c ).Elem()
   r := e.FieldByName( key )
   if r.IsValid() {
@@ -110,6 +117,8 @@ func (c *Conf) GetParam( key string ) string {
 }
 
 func (c *Conf) GetRoute( key string ) (route *Route, err error) {
+  GLOBAL_CONF_MUTEXT.Lock() 
+  defer GLOBAL_CONF_MUTEXT.Unlock() 
   if route, ok := c.Routes[key]; ok {
     return route, nil
   }
@@ -120,6 +129,8 @@ func (c *Conf) Export( pathOption ...string ) bool {
   if len( pathOption ) < 0 {
     path = pathOption[0]
   }
+  GLOBAL_CONF_MUTEXT.Lock() 
+  defer GLOBAL_CONF_MUTEXT.Unlock() 
   v, err := json.Marshal( GLOBAL_CONF )
   if err != nil {
     log.Fatal( "export conf (Marshal) :", err )
@@ -482,7 +493,6 @@ func ApiHandler(w http.ResponseWriter, r *http.Request) {
     parts := re.FindStringSubmatch( pathExtract )
     typeOf = parts[1]
     typeId = parts[3]
-    fmt.Println( typeOf, typeId ) 
   }
   switch typeOf {
   case "conf":
@@ -511,18 +521,71 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
 func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
   switch r.Method  {
   case "GET": 
-    jsonResponse, err := json.Marshal( GLOBAL_CONF )
+    jsonResponse, err := json.Marshal( GLOBAL_CONF ) 
     if err != nil { 
-      ErrorLogger.Println( "API export conf (Marshal) :", err )
+      ErrorLogger.Println( "API export conf (Marshal) :", err ) 
       return 
     } 
-    w.Write( jsonResponse ) 
-    w.Header().Set( "Content-type", "application/json" ) 
     w.WriteHeader( 200 )
-  case "POST":
-    w.WriteHeader( 503 )
+    w.Header().Set( "Content-type", "application/json" ) 
+    w.Write( jsonResponse ) 
+    return 
+  case "PATCH": 
+    if contentType := r.Header.Get("Content-type"); contentType != "application/json" {
+      w.WriteHeader( 400 )
+      w.Header().Set( "Content-type", "application/problem+json" ) 
+      w.Write( []byte(`{"message":"you must have 'application/json' content-type header"}` ) ) 
+      return 
+    } 
+    body, err := ioutil.ReadAll( r.Body )
+    if err != nil { 
+      ErrorLogger.Println( "API import conf (read body) :", err )
+      w.WriteHeader( 500 ) 
+      return 
+    } 
+    var f interface{} 
+    err = json.Unmarshal( body, &f ) 
+    if err != nil { 
+      ErrorLogger.Println( "API import conf (parse body) :", err )
+      w.WriteHeader( 500 )
+      return 
+    } 
+    o := f.( map[string]interface{} ) 
+    for key, value := range o { 
+      switch key {
+      case "delay": 
+        switch value.(type) {
+        case float64:
+          delay := int(value.(float64)) 
+          if delay >= 5 && delay <= 60 {
+            GLOBAL_CONF.DelayCleaningContainers = delay 
+            WarningLogger.Println( "Delay changed ; new value :", delay )
+            continue 
+          } else { 
+            w.WriteHeader( 400 )
+            w.Header().Set( "Content-type", "application/problem+json" ) 
+            w.Write( []byte(`{"message":"value of delay invalid : int between 5 and 60 (seconds)"}` ) ) 
+            return 
+          } 
+        default:
+          w.WriteHeader( 400 )
+          w.Header().Set( "Content-type", "application/problem+json" ) 
+          w.Write( []byte(`{"message":"type's value of delay invalid"}` ) ) 
+          return 
+        } 
+      default:
+        w.WriteHeader( 501 )
+        w.Header().Set( "Content-type", "application/problem+json" ) 
+        w.Write( []byte(`{"message":"one of more keys in JSON payload are invalid"}` ) ) 
+        return
+      }
+    } 
+    w.WriteHeader( 202 ) 
   default:
     w.WriteHeader( 400 )
+    w.Header().Set( "Content-type", "application/problem+json" ) 
+    w.Write( []byte(`{"message":"you must have GET or POST HTTP verbs"}` ) ) 
+    return 
   }
 }
 
