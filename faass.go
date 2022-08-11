@@ -503,12 +503,12 @@ func ( container *Containers ) GetInfos ( route *Route, pattern string ) ( infos
 
 type JSONResponse struct {
   Code int 
-  MessageText string
+  MessageError string
   Payload interface{}
 }
 
 func ( jsonR *JSONResponse ) jsonRespond( w http.ResponseWriter ) bool { 
-  if jsonR.Code > 199 && jsonR.Code < 300 {
+  if jsonR.Code < 300 {
     if jsonR.Payload != nil {
       jsonResponse, err := json.Marshal( jsonR.Payload ) 
       if err != nil { 
@@ -528,7 +528,7 @@ func ( jsonR *JSONResponse ) jsonRespond( w http.ResponseWriter ) bool {
       []byte( 
         fmt.Sprintf( 
           `{"message":"%v"}`, 
-          jsonR.MessageText, 
+          jsonR.MessageError, 
         ),
       ),
     ) 
@@ -542,7 +542,7 @@ func ApiHandler(w http.ResponseWriter, r *http.Request) {
   if r.Header.Get( "Authorization" ) != GLOBAL_CONF.Authorization  { 
     jsonResponse := JSONResponse { 
       Code: 401, 
-      MessageText: "you must be authentified", 
+      MessageError: "you must be authentified", 
     }
     jsonResponse.jsonRespond( w ) 
     return 
@@ -583,7 +583,7 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
 func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
   jsonResponse := &JSONResponse { 
     Code: 500,
-    MessageText: "an unexpected error has occurred", 
+    MessageError: "an unexpected error has occurred", 
   }
   defer jsonResponse.jsonRespond( w ) 
   switch r.Method  {
@@ -594,14 +594,14 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
   case "PATCH": 
     if contentType := r.Header.Get("Content-type"); contentType != "application/json" {
       jsonResponse.Code = 400 
-      jsonResponse.MessageText = "you must have 'application/json' content-type header"
+      jsonResponse.MessageError = "you must have 'application/json' content-type header"
       return 
     } 
     body, err := ioutil.ReadAll( r.Body )
     if err != nil { 
       ErrorLogger.Println( "API import conf (read body) :", err )
       jsonResponse.Code = 500 
-      jsonResponse.MessageText = "the request's body is an invalid"
+      jsonResponse.MessageError = "the request's body is an invalid"
       return 
     } 
     var f interface{} 
@@ -609,7 +609,7 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
     if err != nil { 
       ErrorLogger.Println( "API import conf (parse body) :", err )
       jsonResponse.Code = 400 
-      jsonResponse.MessageText = "the request's body is an invalid"
+      jsonResponse.MessageError = "the request's body is an invalid"
       return 
     } 
     o := f.( map[string]interface{} ) 
@@ -627,24 +627,24 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
             continue 
           } else { 
             jsonResponse.Code = 400 
-            jsonResponse.MessageText = "value of delay invalid : int between 5 and 60 (seconds)"
+            jsonResponse.MessageError = "value of delay invalid : int between 5 and 60 (seconds)"
             return 
           } 
         default:
           jsonResponse.Code = 400 
-          jsonResponse.MessageText = "type's value of delay invalid"
+          jsonResponse.MessageError = "type's value of delay invalid"
           return 
         } 
       default:
         jsonResponse.Code = 501 
-        jsonResponse.MessageText = "at least one key is invalid"
+        jsonResponse.MessageError = "at least one key is invalid"
         return
       }
     } 
     jsonResponse.Code = 202
   default:
     jsonResponse.Code = 400
-    jsonResponse.MessageText = "you must have GET or POST HTTP verbs"
+    jsonResponse.MessageError = "you must have GET or POST HTTP verbs"
     return 
   }
 }
