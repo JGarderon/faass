@@ -33,15 +33,17 @@ import (
   "syscall"
   "context"
 )
+
 // -----------------------------------------------
 
 var GLOBAL_CONF_PATH string
 var GLOBAL_CONF Conf
-var GLOBAL_CONF_MUTEXT sync.Mutex 
+var GLOBAL_CONF_MUTEXT sync.RWMutex 
 
 var GLOBAL_REGEX_ROUTE_NAME *regexp.Regexp
 
 var GLOBAL_WAIT_GROUP sync.WaitGroup
+
 // -----------------------------------------------
 
 const (
@@ -52,6 +54,7 @@ const (
   ExitConfRegexUrlKo
   ExitConfShuttingServerFailed
 )
+
 // -----------------------------------------------
 
 var (
@@ -61,6 +64,7 @@ var (
   ErrorLogger     *log.Logger
   PanicLogger     *log.Logger
 )
+
 // -----------------------------------------------
 
 type Conf struct {
@@ -91,8 +95,6 @@ func ConfImport( pathOption ...string ) bool {
     log.Println( "ConfImport (ioutil) :", err )
     return false
   }
-  GLOBAL_CONF_MUTEXT.Lock() 
-  defer GLOBAL_CONF_MUTEXT.Unlock() 
   json.Unmarshal( byteValue, &GLOBAL_CONF )
   if GLOBAL_CONF.DelayCleaningContainers < 5 {
     GLOBAL_CONF.DelayCleaningContainers = 5
@@ -106,8 +108,10 @@ func ConfImport( pathOption ...string ) bool {
 }
 
 func (c *Conf) GetParam( key string ) string {
-  GLOBAL_CONF_MUTEXT.Lock() 
-  defer GLOBAL_CONF_MUTEXT.Unlock() 
+  if GLOBAL_CONF.Authorization != "" {
+    GLOBAL_CONF_MUTEXT.RLock() 
+    defer GLOBAL_CONF_MUTEXT.RUnlock() 
+  }
   e := reflect.ValueOf( c ).Elem()
   r := e.FieldByName( key )
   if r.IsValid() {
@@ -117,20 +121,23 @@ func (c *Conf) GetParam( key string ) string {
 }
 
 func (c *Conf) GetRoute( key string ) (route *Route, err error) {
-  GLOBAL_CONF_MUTEXT.Lock() 
-  defer GLOBAL_CONF_MUTEXT.Unlock() 
+  if GLOBAL_CONF.Authorization != "" {
+    GLOBAL_CONF_MUTEXT.RLock() 
+    defer GLOBAL_CONF_MUTEXT.RUnlock() 
+  }
   if route, ok := c.Routes[key]; ok {
     return route, nil
   }
   return nil, errors.New( "unknow routes" )
 }
+
 func (c *Conf) Export( pathOption ...string ) bool {
   path := GLOBAL_CONF_PATH
   if len( pathOption ) < 0 {
     path = pathOption[0]
   }
-  GLOBAL_CONF_MUTEXT.Lock() 
-  defer GLOBAL_CONF_MUTEXT.Unlock() 
+  GLOBAL_CONF_MUTEXT.RLock() 
+  defer GLOBAL_CONF_MUTEXT.RUnlock() 
   v, err := json.Marshal( GLOBAL_CONF )
   if err != nil {
     log.Fatal( "export conf (Marshal) :", err )
@@ -163,6 +170,7 @@ type Route struct {
   LastRequest time.Time 
   Id string
   IpAdress string
+  Mutex sync.RWMutex
 }
 
 // -----------------------------------------------
@@ -180,6 +188,7 @@ func CreateLogger() {
   PanicLogger = log.New( os.Stderr, "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile )
   PanicLogger.Println( m )   
 }
+
 func CreateRegexUrl() {
   regex, err := regexp.Compile( "^([a-z0-9_-]+)" )
   if err != nil {
@@ -187,6 +196,7 @@ func CreateRegexUrl() {
   }
   GLOBAL_REGEX_ROUTE_NAME = regex
 }
+
 func GetRootPath() (rootPath string, err error) {
   ex, err := os.Executable()
   if err != nil {
@@ -233,10 +243,13 @@ func CreateEnv() bool {
   }
   return true
 }
+
 func StartEnv() {
   confPath := flag.String( "conf", "./conf.json", "path to conf (JSON ; string)" ) 
   prepareEnv := flag.Bool( "prepare", false, "create environment (conf+dir ; bool)" )
   flag.Parse()
+  GLOBAL_CONF_MUTEXT.Lock() 
+  defer GLOBAL_CONF_MUTEXT.Unlock() 
   GLOBAL_CONF_PATH = string( *confPath )
   if *prepareEnv {
     if CreateEnv() {
@@ -279,13 +292,9 @@ type Container interface {
 }
 // -----------------------------------------------
 
-type Containers struct {
-  mutex sync.Mutex
-}
+type Containers struct {}
 
 func ( container *Containers ) Run ( route *Route ) ( err error ) {
-  container.mutex.Lock()
-  defer container.mutex.Unlock()
   if route.Id == "" {
     _, err := container.Create( route )
     if err != nil {
@@ -335,6 +344,8 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
     GLOBAL_CONF.GetParam("TmpDir"),
     route.Name+".env", 
   )
+  route.Mutex.Lock()
+  defer route.Mutex.Unlock()
   fileEnv, err := os.Create( fileEnvPath )
   defer fileEnv.Close()
   if err != nil {
@@ -390,6 +401,8 @@ func ( container *Containers ) Check ( route *Route ) ( state string, err error 
   if route.Id == "" {
     return "undetermined", errors.New( "ID container has null string" )
   }
+  route.Mutex.RLock()
+  defer route.Mutex.RUnlock()
   cmd := exec.Command(
     "docker",
     "container",
@@ -410,6 +423,8 @@ func ( container *Containers ) Start ( route *Route ) ( state bool, err error ) 
   if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
+  route.Mutex.Lock()
+  defer route.Mutex.Unlock()
   cmd := exec.Command(
     "docker",
     "container",
@@ -427,6 +442,8 @@ func ( container *Containers ) Stop ( route *Route ) ( state bool, err error ) {
   if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
+  route.Mutex.Lock()
+  defer route.Mutex.Unlock()
   cmd := exec.Command(
     "docker",
     "container",
@@ -444,6 +461,8 @@ func ( container *Containers ) Remove ( route *Route ) ( state bool, err error )
    if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
+  route.Mutex.Lock()
+  defer route.Mutex.Unlock()
   cmd := exec.Command(
     "docker",
     "container",
@@ -462,6 +481,8 @@ func ( container *Containers ) GetInfos ( route *Route, pattern string ) ( infos
    if route.Id == "" {
     return "", errors.New( "ID container has null string" )
   }
+  route.Mutex.RLock()
+  defer route.Mutex.RUnlock()
   cmd := exec.Command(
     "docker",
     "container",
@@ -558,7 +579,9 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
         case float64:
           delay := int(value.(float64)) 
           if delay >= 5 && delay <= 60 {
+            GLOBAL_CONF_MUTEXT.Lock()
             GLOBAL_CONF.DelayCleaningContainers = delay 
+            GLOBAL_CONF_MUTEXT.Unlock()
             WarningLogger.Println( "Delay changed ; new value :", delay )
             continue 
           } else { 
@@ -681,7 +704,7 @@ func CleanContainers( ctx context.Context, force bool ) {
         route := GLOBAL_CONF.Routes[routeName]
         if route.Id != "" {
           routeDelayLastRequest := route.LastRequest.Add( time.Duration( route.Delay ) * time.Second )
-          GLOBAL_CONF.Containers.mutex.Lock()
+          GLOBAL_CONF_MUTEXT.RLock()
           state, err := GLOBAL_CONF.Containers.Check( route ) 
           if err != nil {
             WarningLogger.Println( "Container ", route.Name, "(cId ", route.Id, ") : state unknow ; ", err )
@@ -693,12 +716,12 @@ func CleanContainers( ctx context.Context, force bool ) {
               InfoLogger.Println( "Container", route.Name, "(cId ", route.Id, ") stopped"  )
             }
           }
-          GLOBAL_CONF.Containers.mutex.Unlock()
+          GLOBAL_CONF_MUTEXT.RUnlock()
         }
       }
     case <-ctx.Done():
-      GLOBAL_CONF.Containers.mutex.Lock()
-      defer GLOBAL_CONF.Containers.mutex.Unlock()
+      GLOBAL_CONF_MUTEXT.RLock()
+      defer GLOBAL_CONF_MUTEXT.RUnlock()
       defer GLOBAL_WAIT_GROUP.Done()
       for routeName := range GLOBAL_CONF.Routes {
         route := GLOBAL_CONF.Routes[routeName]
