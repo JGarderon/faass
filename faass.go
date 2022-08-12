@@ -121,10 +121,6 @@ func (c *Conf) GetParam( key string ) string {
 }
 
 func (c *Conf) GetRoute( key string ) (route *Route, err error) {
-  if GLOBAL_CONF.Authorization != "" {
-    GLOBAL_CONF_MUTEXT.RLock() 
-    defer GLOBAL_CONF_MUTEXT.RUnlock() 
-  }
   if route, ok := c.Routes[key]; ok {
     return route, nil
   }
@@ -516,7 +512,7 @@ func ( jsonR *JSONResponse ) jsonRespond( w http.ResponseWriter ) bool {
         jsonR.Code = 500
         return false
       } 
-      w.Write( jsonResponse ) 
+      defer w.Write( jsonResponse ) 
     }
     w.WriteHeader( jsonR.Code ) 
     w.Header().Set( "Content-type", "application/json" ) 
@@ -567,17 +563,60 @@ func ApiHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
-  // switch r.Method  {
-  // case "GET":
-  //   w.WriteHeader( 200 )
-  // case "POST":
-  //   w.WriteHeader( 200 )
-  // case "DELETE":
-  //   w.WriteHeader( 200 )
-  // default:
-  //   w.WriteHeader( 400 )
-  // }
-    w.WriteHeader( 503 ) 
+  jsonResponse := &JSONResponse { 
+    Code: 500,
+    MessageError: "an unexpected error has occurred", 
+  } 
+  defer jsonResponse.jsonRespond( w ) 
+  switch r.Method  {
+  case "GET":
+    GLOBAL_CONF_MUTEXT.RLock() 
+    defer GLOBAL_CONF_MUTEXT.RUnlock() 
+    route, _ := GLOBAL_CONF.GetRoute( typeId )
+    if route == nil {
+      jsonResponse.Code = 404 
+      jsonResponse.MessageError = "unknow route"
+      InfoLogger.Println( "Route ", typeId, "asked (non-existent)" )
+    } else { 
+      jsonResponse.Code = 200 
+      jsonResponse.Payload = route 
+      InfoLogger.Println( "Route ", typeId, "asked (existent)" )
+    }
+  case "POST":
+    w.WriteHeader( 501 )
+  case "DELETE":
+    GLOBAL_CONF_MUTEXT.Lock() 
+    defer GLOBAL_CONF_MUTEXT.Unlock() 
+    route, _ := GLOBAL_CONF.GetRoute( typeId )
+    if route == nil {
+      jsonResponse.Code = 404 
+      jsonResponse.MessageError = "unknow route"
+    } else { 
+      rId := route.Id 
+      if rId != "" {
+        _, err := GLOBAL_CONF.Containers.Stop( route )
+        if err != nil {
+          WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" )
+        } 
+        InfoLogger.Println( "Container ", route.Name, "(cId ", rId, ") stopped" )
+        time.Sleep( time.Duration( route.Timeout ) * time.Millisecond )
+        _, err = GLOBAL_CONF.Containers.Remove( route )
+        if err != nil {
+          WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
+        } else {
+          InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
+        } 
+      }
+      delete( GLOBAL_CONF.Routes, typeId ) 
+      InfoLogger.Println( "Route ", typeId, "removed" )
+      jsonResponse.Code = 200 
+      jsonResponse.Payload = nil 
+    }
+  default:
+    jsonResponse.Code = 405 
+    jsonResponse.MessageError = "only GET, POST or DELETE verbs are allowed"
+    InfoLogger.Println( "Route ", typeId, "action unknow (", r.Method, ")" ) 
+  }
 }
 
 func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
@@ -665,15 +704,18 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   if rRest == "" {
     rRest += "/"
   }
+  GLOBAL_CONF_MUTEXT.RLock()
   route, err := GLOBAL_CONF.GetRoute( rName )
   if err != nil {
     InfoLogger.Println( "unknow desired url :", rName, "(", err, ")" )
     w.WriteHeader( 404 )
+    GLOBAL_CONF_MUTEXT.RUnlock()
     return
   }
   InfoLogger.Println( "known desired url :", rName )
   route.LastRequest = time.Now()
   err = GLOBAL_CONF.Containers.Run( route )
+  GLOBAL_CONF_MUTEXT.RUnlock()
   if err != nil {
     WarningLogger.Println( "unknow state of container for route :", rName, "(", err, ")" )
     w.WriteHeader( 503 )
