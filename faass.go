@@ -577,21 +577,31 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
       jsonResponse.Code = 404 
       jsonResponse.MessageError = "unknow route"
       InfoLogger.Println( "Route ", typeId, "asked (non-existent)" )
-    } else { 
-      jsonResponse.Code = 200 
-      jsonResponse.Payload = route 
-      InfoLogger.Println( "Route ", typeId, "asked (existent)" )
-    }
+      return 
+    } 
+    jsonResponse.Code = 200 
+    jsonResponse.Payload = route 
+    InfoLogger.Println( "Route ", typeId, "asked (existent)" ) 
   case "POST":
-    w.WriteHeader( 501 )
-  case "DELETE":
+    body, err := ioutil.ReadAll( r.Body )
+    if err != nil { 
+      ErrorLogger.Println( "API import route (read body) :", err )
+      jsonResponse.Code = 500 
+      jsonResponse.MessageError = "the request's body is an invalid"
+      return 
+    } 
+    var newRoute = Route {}
+    err = json.Unmarshal( body, &newRoute ) 
+    if err != nil { 
+      ErrorLogger.Println( "API import route (parse body) :", err )
+      jsonResponse.Code = 400 
+      jsonResponse.MessageError = "the request's body is an invalid"
+      return 
+    } 
     GLOBAL_CONF_MUTEXT.Lock() 
     defer GLOBAL_CONF_MUTEXT.Unlock() 
     route, _ := GLOBAL_CONF.GetRoute( typeId )
-    if route == nil {
-      jsonResponse.Code = 404 
-      jsonResponse.MessageError = "unknow route"
-    } else { 
+    if route != nil {
       rId := route.Id 
       if rId != "" {
         _, err := GLOBAL_CONF.Containers.Stop( route )
@@ -605,13 +615,41 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
           WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
         } else {
           InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
-        } 
+        }
       }
-      delete( GLOBAL_CONF.Routes, typeId ) 
-      InfoLogger.Println( "Route ", typeId, "removed" )
-      jsonResponse.Code = 200 
-      jsonResponse.Payload = nil 
+    } 
+    GLOBAL_CONF.Routes[typeId] = &newRoute 
+    InfoLogger.Println( "Route ", typeId, "updated" )
+    jsonResponse.Code = 200 
+    jsonResponse.Payload = nil 
+  case "DELETE":
+    GLOBAL_CONF_MUTEXT.Lock() 
+    defer GLOBAL_CONF_MUTEXT.Unlock() 
+    route, _ := GLOBAL_CONF.GetRoute( typeId )
+    if route == nil {
+      jsonResponse.Code = 404 
+      jsonResponse.MessageError = "unknow route"
+      return 
+    } 
+    rId := route.Id 
+    if rId != "" {
+      _, err := GLOBAL_CONF.Containers.Stop( route )
+      if err != nil {
+        WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" )
+      } 
+      InfoLogger.Println( "Container ", route.Name, "(cId ", rId, ") stopped" )
+      time.Sleep( time.Duration( route.Timeout ) * time.Millisecond )
+      _, err = GLOBAL_CONF.Containers.Remove( route )
+      if err != nil {
+        WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
+      } else {
+        InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
+      } 
     }
+    delete( GLOBAL_CONF.Routes, typeId ) 
+    InfoLogger.Println( "Route ", typeId, "removed" )
+    jsonResponse.Code = 200 
+    jsonResponse.Payload = nil 
   default:
     jsonResponse.Code = 405 
     jsonResponse.MessageError = "only GET, POST or DELETE verbs are allowed"
