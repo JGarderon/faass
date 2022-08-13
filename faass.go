@@ -157,6 +157,7 @@ func (c *Conf) Export( pathOption ...string ) bool {
 
 type Route struct {
   Name string `json:"name"`
+  Authorization string `json:"authorization"`
   Environment map[string]string `json:"env"`
   Image string `json:"image"`
   Timeout int `json:"timeout"`
@@ -392,6 +393,7 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
   route.IpAdress = cIP
   return cId, nil
 }
+
 func ( container *Containers ) Check ( route *Route ) ( state string, err error ) {
   // docker container ls -a --filter 'status=created' --format "{{.ID}}" | xargs docker rm
   if route.Id == "" {
@@ -415,6 +417,7 @@ func ( container *Containers ) Check ( route *Route ) ( state string, err error 
   }
   return cState, nil
 }
+
 func ( container *Containers ) Start ( route *Route ) ( state bool, err error ) {
   if route.Id == "" {
     return false, errors.New( "ID container has null string" )
@@ -434,6 +437,7 @@ func ( container *Containers ) Start ( route *Route ) ( state bool, err error ) 
   }
   return true, nil
 }
+
 func ( container *Containers ) Stop ( route *Route ) ( state bool, err error ) {
   if route.Id == "" {
     return false, errors.New( "ID container has null string" )
@@ -453,6 +457,7 @@ func ( container *Containers ) Stop ( route *Route ) ( state bool, err error ) {
   }
   return true, nil
 }
+
 func ( container *Containers ) Remove ( route *Route ) ( state bool, err error ) {
    if route.Id == "" {
     return false, errors.New( "ID container has null string" )
@@ -473,6 +478,7 @@ func ( container *Containers ) Remove ( route *Route ) ( state bool, err error )
   route.Id = ""
   return true, nil
 }
+
 func ( container *Containers ) GetInfos ( route *Route, pattern string ) ( infos string, err error ) {
    if route.Id == "" {
     return "", errors.New( "ID container has null string" )
@@ -501,6 +507,7 @@ type JSONResponse struct {
   Code int 
   MessageError string
   Payload interface{}
+  IOFile io.ReadCloser
 }
 
 func ( jsonR *JSONResponse ) jsonRespond( w http.ResponseWriter ) bool { 
@@ -508,14 +515,21 @@ func ( jsonR *JSONResponse ) jsonRespond( w http.ResponseWriter ) bool {
     if jsonR.Payload != nil {
       jsonResponse, err := json.Marshal( jsonR.Payload ) 
       if err != nil { 
+        w.WriteHeader( 500 ) 
+        w.Header().Set( "Content-type", "application/problem+json" )
         ErrorLogger.Println( "API export conf (Marshal) :", err ) 
         jsonR.Code = 500
         return false
       } 
-      defer w.Write( jsonResponse ) 
+      w.WriteHeader( jsonR.Code ) 
+      w.Header().Set( "Content-type", "application/json" ) 
+      w.Write( jsonResponse ) 
+    } else if jsonR.IOFile != nil { 
+      w.WriteHeader( jsonR.Code ) 
+      io.Copy( w, jsonR.IOFile )
+    } else {
+      w.WriteHeader( jsonR.Code ) 
     }
-    w.WriteHeader( jsonR.Code ) 
-    w.Header().Set( "Content-type", "application/json" ) 
     return true 
   } else { 
     w.WriteHeader( jsonR.Code ) 
@@ -527,7 +541,7 @@ func ( jsonR *JSONResponse ) jsonRespond( w http.ResponseWriter ) bool {
           jsonR.MessageError, 
         ),
       ),
-    ) 
+    )
     return true
   }
 }
@@ -729,10 +743,16 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
 // -----------------------------------------------
 
 func lambdaHandler(w http.ResponseWriter, r *http.Request) {
+  jsonResponse := JSONResponse { 
+    Code: 500, 
+    MessageError: "an unexpected error found", 
+  }
+  defer jsonResponse.jsonRespond( w ) 
   url := r.URL.Path[8:] // "/lambda/" = 8 signes
   if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true {
     InfoLogger.Println( "bad desired url :", url )
-    w.WriteHeader( 400 )
+    jsonResponse.Code = 400
+    jsonResponse.MessageError = "bad desired url" 
     return
   }
   InfoLogger.Println( "known real desired url :", r.URL )
@@ -746,17 +766,25 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   route, err := GLOBAL_CONF.GetRoute( rName )
   if err != nil {
     InfoLogger.Println( "unknow desired url :", rName, "(", err, ")" )
-    w.WriteHeader( 404 )
+    jsonResponse.Code = 404
+    jsonResponse.MessageError = "unknow desired url" 
     GLOBAL_CONF_MUTEXT.RUnlock()
     return
-  }
+  } 
+  if r.Header.Get( "Authorization" ) != route.Authorization  { 
+    jsonResponse.Code = 401
+    jsonResponse.MessageError = "you must be authentified" 
+    GLOBAL_CONF_MUTEXT.RUnlock()
+    return 
+  } 
   InfoLogger.Println( "known desired url :", rName )
   route.LastRequest = time.Now()
   err = GLOBAL_CONF.Containers.Run( route )
   GLOBAL_CONF_MUTEXT.RUnlock()
   if err != nil {
     WarningLogger.Println( "unknow state of container for route :", rName, "(", err, ")" )
-    w.WriteHeader( 503 )
+    jsonResponse.Code = 503
+    jsonResponse.MessageError = "unknow state of container" 
     return
   }
   DebugLogger.Println( "running container for desired route :", route.IpAdress, "(cId", route.Id, ")" )
@@ -779,7 +807,9 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   )
   if err != nil {
     WarningLogger.Println( "bad gateway for container as route :", rName, "(", err, ")" )
-    w.WriteHeader( 502 )
+    jsonResponse.Code = 502
+    jsonResponse.MessageError = "bad gateway for container" 
+    jsonResponse.jsonRespond( w ) 
     return
   }
   proxyReq.Header.Set( "Host", r.Host )
@@ -795,7 +825,8 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   proxyRes, err := client.Do( proxyReq )
   if err != nil {
     WarningLogger.Println( "request failed to container as route :", rName, "(", err, ")" )
-    w.WriteHeader( 500 )
+    jsonResponse.Code = 500
+    jsonResponse.MessageError = "request failed to container"
     return
   }
   DebugLogger.Println( "result of desired route :", proxyRes.StatusCode, "(cId", route.Id, ")" )
@@ -805,8 +836,8 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
       wH.Add(header, value)
     }
   }
-  w.WriteHeader( proxyRes.StatusCode )
-  io.Copy( w, proxyRes.Body )
+  jsonResponse.Code = proxyRes.StatusCode 
+  jsonResponse.IOFile = proxyRes.Body
 }
 
 // -----------------------------------------------

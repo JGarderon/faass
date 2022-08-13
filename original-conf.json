@@ -9,6 +9,7 @@
 	"routes": {
 		"toto" : { 
 			"name": "monconteneur",
+			"authorization": "Basic YWRtaW46YXplcnR5", 
 			"env": { "truc" : "machin" }, 
 			"image": "nginx", 
 			"timeout" : 250, 
