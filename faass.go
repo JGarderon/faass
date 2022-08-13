@@ -132,9 +132,7 @@ func (c *Conf) Export( pathOption ...string ) bool {
   if len( pathOption ) < 0 {
     path = pathOption[0]
   }
-  GLOBAL_CONF_MUTEXT.RLock() 
-  defer GLOBAL_CONF_MUTEXT.RUnlock() 
-  v, err := json.Marshal( GLOBAL_CONF )
+  v, err := json.Marshal( c )
   if err != nil {
     log.Fatal( "export conf (Marshal) :", err )
     return false
@@ -217,16 +215,29 @@ func CreateEnv() bool {
     rootPath,
     "./tmp",
   )
-  GLOBAL_CONF = Conf {
-    Containers: Containers{},
+  newMapRoutes := make( map[string]*Route ) 
+  newMapEnvironmentRoute := make( map[string]string ) 
+  newMapEnvironmentRoute["faass-example"] = "true" 
+  newMapRoutes["example"] = &Route {    
+      Name: "exampleContainer",
+      Authorization: "Basic YWRtaW46YXplcnR5", 
+      Environment: newMapEnvironmentRoute, 
+      Image: "nginx", 
+      Timeout : 250, 
+      Retry: 3, 
+      Delay: 8, 
+      Port: 80, 
+  } 
+  newConf := Conf {
     Domain: "https://localhost",
     Authorization: "Basic YWRtaW46YXplcnR5", // admin:azerty 
     IncomingPort: 9090,
     UI: uiTmpDir, 
     TmpDir: pathTmpDir,
     Prefix: "lambda",
+    Routes: newMapRoutes, 
   }
-  if ! GLOBAL_CONF.Export() {
+  if !newConf.Export() {
     ErrorLogger.Println( "Unable to create environment : conf" )
     return false
   }
