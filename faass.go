@@ -3,7 +3,7 @@ package main
   FaasS = Function as a (Simple) Service
   ---
   Created by Julien Garderon (Nothus)
-  from August 01 to 07, 2022
+  from August 01 to 13, 2022
   MIT Licence
   ---
   This is a POC - Proof of Concept -, based on the idea of the OpenFaas project
@@ -57,16 +57,6 @@ const (
 
 // -----------------------------------------------
 
-var (
-  DebugLogger     *log.Logger
-  InfoLogger      *log.Logger
-  WarningLogger   *log.Logger
-  ErrorLogger     *log.Logger
-  PanicLogger     *log.Logger
-)
-
-// -----------------------------------------------
-
 type Conf struct {
   Containers Containers
   Domain string `json:"domain"`
@@ -98,11 +88,11 @@ func ConfImport( pathOption ...string ) bool {
   json.Unmarshal( byteValue, &GLOBAL_CONF )
   if GLOBAL_CONF.DelayCleaningContainers < 5 {
     GLOBAL_CONF.DelayCleaningContainers = 5
-    WarningLogger.Println( "new value for delay cleaning containers : min 5 (seconds)" ) 
+    Logger.Warning( "new value for delay cleaning containers : min 5 (seconds)" ) 
   }
   if GLOBAL_CONF.DelayCleaningContainers > 60 {
     GLOBAL_CONF.DelayCleaningContainers = 60 
-    WarningLogger.Println( "new value for delay cleaning containers : max 60 (seconds)" ) 
+    Logger.Warning( "new value for delay cleaning containers : max 60 (seconds)" ) 
   }
   return true
 }
@@ -170,19 +160,36 @@ type Route struct {
 
 // -----------------------------------------------
 
-func CreateLogger() {
-  m := "!!! starting ; test log"
-  DebugLogger = log.New( os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile )
-  DebugLogger.Println( m )
-  InfoLogger = log.New( os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile )
-  InfoLogger.Println( m )
-  WarningLogger = log.New( os.Stderr, "WARNING: ", log.Ldate|log.Ltime|log.Lshortfile )
-  WarningLogger.Println( m )
-  ErrorLogger = log.New( os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile )
-  ErrorLogger.Println( m )
-  PanicLogger = log.New( os.Stderr, "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile )
-  PanicLogger.Println( m )   
+type logger struct {
+  Mutext    sync.Mutex
+  Debug     func(v ...any)
+  Info      func(v ...any)
+  Warning   func(v ...any)
+  Error     func(v ...any)
+  Panic     func(v ...any)
 }
+
+var Logger *logger
+
+func InitLogger() {
+  Logger = &logger { 
+    Debug     : log.New( os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Info      : log.New( os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Warning   : log.New( os.Stderr, "WARNING: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Error     : log.New( os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Panic     : log.New( os.Stderr, "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+  }
+}
+
+func TestLogger( m *string ) {
+  Logger.Debug( *m )
+  Logger.Info( *m )
+  Logger.Warning( *m )
+  Logger.Error( *m )
+  Logger.Panic( *m )   
+}
+
+// -----------------------------------------------
 
 func CreateRegexUrl() {
   regex, err := regexp.Compile( "^([a-z0-9_-]+)" )
@@ -195,7 +202,7 @@ func CreateRegexUrl() {
 func GetRootPath() (rootPath string, err error) {
   ex, err := os.Executable()
   if err != nil {
-    WarningLogger.Println( "unable to get current path of executable : ", err )
+    Logger.Warning( "unable to get current path of executable : ", err )
     return "", errors.New( "unable to get current path of executable" )
   }
   rootPath = filepath.Dir( ex )
@@ -238,24 +245,28 @@ func CreateEnv() bool {
     Routes: newMapRoutes, 
   }
   if !newConf.Export() {
-    ErrorLogger.Println( "Unable to create environment : conf" )
+    Logger.Error( "Unable to create environment : conf" )
     return false
   }
   if err := os.Mkdir( uiTmpDir, os.ModePerm ); err != nil {
-    WarningLogger.Println( "Unable to create environment : content dir (", err, "); pass" )
+    Logger.Warning( "Unable to create environment : content dir (", err, "); pass" )
     return false
   }
   if err := os.Mkdir( pathTmpDir, os.ModePerm ); err != nil {
-    WarningLogger.Println( "Unable to create environment : tmp dir (", err, "); pass" )
+    Logger.Warning( "Unable to create environment : tmp dir (", err, "); pass" )
     return false
   }
   return true
 }
 
 func StartEnv() {
+  testLogger := flag.String( "testlogger", "", "test logger (value of print ; string)" ) 
   confPath := flag.String( "conf", "./conf.json", "path to conf (JSON ; string)" ) 
   prepareEnv := flag.Bool( "prepare", false, "create environment (conf+dir ; bool)" )
   flag.Parse()
+  if *testLogger != "" {
+    TestLogger( testLogger ) 
+  }
   GLOBAL_CONF_MUTEXT.Lock() 
   defer GLOBAL_CONF_MUTEXT.Unlock() 
   GLOBAL_CONF_PATH = string( *confPath )
@@ -267,18 +278,18 @@ func StartEnv() {
     }
   }
   if !ConfImport() {
-    PanicLogger.Println( "Unable to load configuration" )
+    Logger.Panic( "Unable to load configuration" )
     os.Exit( ExitConfLoadKo )
   }
   if GLOBAL_CONF.IncomingPort < 1 || GLOBAL_CONF.IncomingPort > 65535 {
-    PanicLogger.Println(
+    Logger.Panic(
       "Bad configuration : incorrect port '"+strconv.Itoa( GLOBAL_CONF.IncomingPort )+"'", 
     )
     os.Exit( ExitConfLoadKo )
   }
   rootPath, err := GetRootPath()
   if err != nil {
-    PanicLogger.Println( "Unable to root path of executable" )
+    Logger.Panic( "Unable to root path of executable" )
     os.Exit( ExitConfLoadKo )
   }
   GLOBAL_CONF.UI = filepath.Join(
@@ -357,7 +368,7 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
   fileEnv, err := os.Create( fileEnvPath )
   defer fileEnv.Close()
   if err != nil {
-    ErrorLogger.Println( "unable to create container file env : ", err )
+    Logger.Error( "unable to create container file env : ", err )
     return "failed", errors.New( "env file for container failed" )
   }
   for key, value := range route.Environment {
@@ -368,7 +379,7 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
     route.Name, 
   )
   if err := os.MkdirAll( pathContainerTmpDir, os.ModePerm ); err != nil {
-    ErrorLogger.Println( "unable to create tmp dir for container : ", err )
+    Logger.Error( "unable to create tmp dir for container : ", err )
     return "failed", errors.New( "tmp dir for container failed" )
   }
   cmd := exec.Command(
@@ -388,7 +399,7 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
   o, err := cmd.CombinedOutput()
   cId := strings.TrimSuffix( string( o ), "\n" )
   if err != nil {
-    ErrorLogger.Println( "container create in error : ", err )
+    Logger.Error( "container create in error : ", err )
     return "undetermined", errors.New( cId )
   }
   route.Id = cId 
@@ -423,7 +434,7 @@ func ( container *Containers ) Check ( route *Route ) ( state string, err error 
   o, err := cmd.CombinedOutput()
   cState := strings.TrimSuffix( string( o ), "\n" ) 
   if err != nil {
-    ErrorLogger.Println( "container check ", err )
+    Logger.Error( "container check ", err )
     return "undetermined", errors.New( cState )
   }
   return cState, nil
@@ -528,7 +539,7 @@ func ( httpR *HTTPResponse ) httpRespond( w http.ResponseWriter ) bool {
       if err != nil { 
         w.WriteHeader( 500 ) 
         w.Header().Set( "Content-type", "application/problem+json" )
-        ErrorLogger.Println( "API export conf (Marshal) :", err ) 
+        Logger.Error( "API export conf (Marshal) :", err ) 
         httpR.Code = 500
         return false
       } 
@@ -601,16 +612,16 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
     if route == nil {
       HTTPResponse.Code = 404 
       HTTPResponse.MessageError = "unknow route"
-      InfoLogger.Println( "Route ", typeId, "asked (non-existent)" )
+      Logger.Info( "Route ", typeId, "asked (non-existent)" )
       return 
     } 
     HTTPResponse.Code = 200 
     HTTPResponse.Payload = route 
-    InfoLogger.Println( "Route ", typeId, "asked (existent)" ) 
+    Logger.Info( "Route ", typeId, "asked (existent)" ) 
   case "POST":
     body, err := ioutil.ReadAll( r.Body )
     if err != nil { 
-      ErrorLogger.Println( "API import route (read body) :", err )
+      Logger.Error( "API import route (read body) :", err )
       HTTPResponse.Code = 500 
       HTTPResponse.MessageError = "the request's body is an invalid"
       return 
@@ -618,7 +629,7 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
     var newRoute = Route {}
     err = json.Unmarshal( body, &newRoute ) 
     if err != nil { 
-      ErrorLogger.Println( "API import route (parse body) :", err )
+      Logger.Error( "API import route (parse body) :", err )
       HTTPResponse.Code = 400 
       HTTPResponse.MessageError = "the request's body is an invalid"
       return 
@@ -631,20 +642,20 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
       if rId != "" {
         _, err := GLOBAL_CONF.Containers.Stop( route )
         if err != nil {
-          WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" )
+          Logger.Warning( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" )
         } 
-        InfoLogger.Println( "Container ", route.Name, "(cId ", rId, ") stopped" )
+        Logger.Info( "Container ", route.Name, "(cId ", rId, ") stopped" )
         time.Sleep( time.Duration( route.Timeout ) * time.Millisecond )
         _, err = GLOBAL_CONF.Containers.Remove( route )
         if err != nil {
-          WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
+          Logger.Warning( "Container ", route.Name, "(cId ", rId, ") not terminated" )
         } else {
-          InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
+          Logger.Info( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
         }
       }
     } 
     GLOBAL_CONF.Routes[typeId] = &newRoute 
-    InfoLogger.Println( "Route ", typeId, "updated" )
+    Logger.Info( "Route ", typeId, "updated" )
     HTTPResponse.Code = 200 
     HTTPResponse.Payload = nil 
   case "DELETE":
@@ -660,25 +671,25 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
     if rId != "" {
       _, err := GLOBAL_CONF.Containers.Stop( route )
       if err != nil {
-        WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" )
+        Logger.Warning( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" )
       } 
-      InfoLogger.Println( "Container ", route.Name, "(cId ", rId, ") stopped" )
+      Logger.Info( "Container ", route.Name, "(cId ", rId, ") stopped" )
       time.Sleep( time.Duration( route.Timeout ) * time.Millisecond )
       _, err = GLOBAL_CONF.Containers.Remove( route )
       if err != nil {
-        WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
+        Logger.Warning( "Container ", route.Name, "(cId ", rId, ") not terminated" )
       } else {
-        InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
+        Logger.Info( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
       } 
     }
     delete( GLOBAL_CONF.Routes, typeId ) 
-    InfoLogger.Println( "Route ", typeId, "removed" )
+    Logger.Info( "Route ", typeId, "removed" )
     HTTPResponse.Code = 200 
     HTTPResponse.Payload = nil 
   default:
     HTTPResponse.Code = 405 
     HTTPResponse.MessageError = "only GET, POST or DELETE verbs are allowed"
-    InfoLogger.Println( "Route ", typeId, "action unknow (", r.Method, ")" ) 
+    Logger.Info( "Route ", typeId, "action unknow (", r.Method, ")" ) 
   }
 }
 
@@ -701,7 +712,7 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
     } 
     body, err := ioutil.ReadAll( r.Body )
     if err != nil { 
-      ErrorLogger.Println( "API import conf (read body) :", err )
+      Logger.Error( "API import conf (read body) :", err )
       HTTPResponse.Code = 500 
       HTTPResponse.MessageError = "the request's body is an invalid"
       return 
@@ -709,7 +720,7 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
     var f interface{} 
     err = json.Unmarshal( body, &f ) 
     if err != nil { 
-      ErrorLogger.Println( "API import conf (parse body) :", err )
+      Logger.Error( "API import conf (parse body) :", err )
       HTTPResponse.Code = 400 
       HTTPResponse.MessageError = "the request's body is an invalid"
       return 
@@ -725,7 +736,7 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
             GLOBAL_CONF_MUTEXT.Lock()
             GLOBAL_CONF.DelayCleaningContainers = delay 
             GLOBAL_CONF_MUTEXT.Unlock()
-            WarningLogger.Println( "Delay changed ; new value :", delay )
+            Logger.Warning( "Delay changed ; new value :", delay )
             continue 
           } else { 
             HTTPResponse.Code = 400 
@@ -761,12 +772,12 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   defer HTTPResponse.httpRespond( w ) 
   url := r.URL.Path[8:] // "/lambda/" = 8 signes
   if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true {
-    InfoLogger.Println( "bad desired url :", url )
+    Logger.Info( "bad desired url :", url )
     HTTPResponse.Code = 400
     HTTPResponse.MessageError = "bad desired url" 
     return
   }
-  InfoLogger.Println( "known real desired url :", r.URL )
+  Logger.Info( "known real desired url :", r.URL )
   rNameSize := utf8.RuneCountInString( GLOBAL_REGEX_ROUTE_NAME.FindStringSubmatch( url )[1] )
   rName := url[:rNameSize]
   rRest := url[rNameSize:]
@@ -776,7 +787,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   GLOBAL_CONF_MUTEXT.RLock()
   route, err := GLOBAL_CONF.GetRoute( rName )
   if err != nil {
-    InfoLogger.Println( "unknow desired url :", rName, "(", err, ")" )
+    Logger.Info( "unknow desired url :", rName, "(", err, ")" )
     HTTPResponse.Code = 404
     HTTPResponse.MessageError = "unknow desired url" 
     GLOBAL_CONF_MUTEXT.RUnlock()
@@ -788,17 +799,17 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     GLOBAL_CONF_MUTEXT.RUnlock()
     return 
   } 
-  InfoLogger.Println( "known desired url :", rName )
+  Logger.Info( "known desired url :", rName )
   route.LastRequest = time.Now()
   err = GLOBAL_CONF.Containers.Run( route )
   GLOBAL_CONF_MUTEXT.RUnlock()
   if err != nil {
-    WarningLogger.Println( "unknow state of container for route :", rName, "(", err, ")" )
+    Logger.Warning( "unknow state of container for route :", rName, "(", err, ")" )
     HTTPResponse.Code = 503
     HTTPResponse.MessageError = "unknow state of container" 
     return
   }
-  DebugLogger.Println( "running container for desired route :", route.IpAdress, "(cId", route.Id, ")" )
+  Logger.Debug( "running container for desired route :", route.IpAdress, "(cId", route.Id, ")" )
   if r.URL.RawQuery != "" {
     rRest += "?"+r.URL.RawQuery
   }
@@ -810,14 +821,14 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     route.IpAdress+":"+strconv.Itoa( route.Port ) ,
     rRest,
   )
-  DebugLogger.Println( "new url for desired route :", dURL, "(cId", route.Id, ")" )
+  Logger.Debug( "new url for desired route :", dURL, "(cId", route.Id, ")" )
   proxyReq, err := http.NewRequest(
     r.Method,
     dURL,
     r.Body,
   )
   if err != nil {
-    WarningLogger.Println( "bad gateway for container as route :", rName, "(", err, ")" )
+    Logger.Warning( "bad gateway for container as route :", rName, "(", err, ")" )
     HTTPResponse.Code = 502
     HTTPResponse.MessageError = "bad gateway for container" 
     HTTPResponse.httpRespond( w ) 
@@ -835,12 +846,12 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   }
   proxyRes, err := client.Do( proxyReq )
   if err != nil {
-    WarningLogger.Println( "request failed to container as route :", rName, "(", err, ")" )
+    Logger.Warning( "request failed to container as route :", rName, "(", err, ")" )
     HTTPResponse.Code = 500
     HTTPResponse.MessageError = "request failed to container"
     return
   }
-  DebugLogger.Println( "result of desired route :", proxyRes.StatusCode, "(cId", route.Id, ")" )
+  Logger.Debug( "result of desired route :", proxyRes.StatusCode, "(cId", route.Id, ")" )
   wH := w.Header()
   for header, values := range proxyRes.Header {
     for _, value := range values {
@@ -866,13 +877,13 @@ func CleanContainers( ctx context.Context, force bool ) {
           GLOBAL_CONF_MUTEXT.RLock()
           state, err := GLOBAL_CONF.Containers.Check( route ) 
           if err != nil {
-            WarningLogger.Println( "Container ", route.Name, "(cId ", route.Id, ") : state unknow ; ", err )
+            Logger.Warning( "Container ", route.Name, "(cId ", route.Id, ") : state unknow ; ", err )
           } else if state != "exited" && routeDelayLastRequest.Before( time.Now() ) {
             _, err := GLOBAL_CONF.Containers.Stop( route )
             if err != nil {
-              WarningLogger.Println( "Container ", route.Name, "(cId ", route.Id, ") not stopped - maybe he is still active ?" )
+              Logger.Warning( "Container ", route.Name, "(cId ", route.Id, ") not stopped - maybe he is still active ?" )
             } else {
-              InfoLogger.Println( "Container", route.Name, "(cId ", route.Id, ") stopped"  )
+              Logger.Info( "Container", route.Name, "(cId ", route.Id, ") stopped"  )
             }
           }
           GLOBAL_CONF_MUTEXT.RUnlock()
@@ -888,15 +899,15 @@ func CleanContainers( ctx context.Context, force bool ) {
         if rId != "" {
           _, err := GLOBAL_CONF.Containers.Stop( route )
           if err != nil {
-            WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" )
+            Logger.Warning( "Container ", route.Name, "(cId ", rId, ") not stopped - maybe he is still active ?" )
           } else {
-            InfoLogger.Println( "Container ", route.Name, "(cId ", rId, ") stopped" )
+            Logger.Info( "Container ", route.Name, "(cId ", rId, ") stopped" )
             time.Sleep( time.Duration( route.Timeout ) * time.Millisecond )
             _, err := GLOBAL_CONF.Containers.Remove( route )
             if err != nil {
-              WarningLogger.Println( "Container ", route.Name, "(cId ", rId, ") not terminated" )
+              Logger.Warning( "Container ", route.Name, "(cId ", rId, ") not terminated" )
             } else {
-              InfoLogger.Println( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
+              Logger.Info( "Container ", route.Name, "(ex-cId ", rId, ") terminated" )
             }
           }
         }
@@ -908,13 +919,13 @@ func CleanContainers( ctx context.Context, force bool ) {
 // -----------------------------------------------
 
 func RunServer ( httpServer *http.Server ) {
-  defer InfoLogger.Println( "Shutdown ListenAndServeTLS terminated" )
+  defer Logger.Info( "Shutdown ListenAndServeTLS terminated" )
   err := httpServer.ListenAndServeTLS(
     "server.crt",
     "server.key",
   )
   if err != nil && err != http.ErrServerClosed {
-    PanicLogger.Println( "ListenAndServe err :", err )
+    Logger.Panic( "ListenAndServe err :", err )
     os.Exit( ExitUndefined )
   }
 }
@@ -922,7 +933,7 @@ func RunServer ( httpServer *http.Server ) {
 
 func main() { 
 
-  CreateLogger()
+  InitLogger()
   StartEnv()
 
   CreateRegexUrl()
@@ -934,17 +945,17 @@ func main() {
 
   UIPath := GLOBAL_CONF.GetParam( "UI" )
   if UIPath != "" {
-    InfoLogger.Println( "UI path found :", UIPath )
+    Logger.Info( "UI path found :", UIPath )
     muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
   }
  
   muxer.HandleFunc( "/lambda/", lambdaHandler )
 
   if GLOBAL_CONF.Authorization != "" {
-    InfoLogger.Println( "Authorization secret found ; API active" )
+    Logger.Info( "Authorization secret found ; API active" )
     muxer.HandleFunc( "/api/", ApiHandler )
   } else { 
-    InfoLogger.Println( "Authorization secret not found ; API inactive" )
+    Logger.Info( "Authorization secret not found ; API inactive" )
   } 
 
   httpServer := &http.Server{
@@ -962,10 +973,10 @@ func main() {
     syscall.SIGQUIT,
   )
   <-signalChan
-  InfoLogger.Println("interrupt received ; shutting down")
+  Logger.Info("interrupt received ; shutting down")
 
   if err := httpServer.Shutdown( ctx ); err != nil {
-    PanicLogger.Printf("shutdown error: %v\n", err)
+    Logger.Panic( "shutdown error: %v\n", err )
     defer os.Exit( ExitConfShuttingServerFailed )
   }
 
@@ -973,6 +984,6 @@ func main() {
 
   GLOBAL_WAIT_GROUP.Wait()
 
-  InfoLogger.Printf("process gracefully stopped")
+  Logger.Info( "process gracefully stopped" )
 
 }
