@@ -145,6 +145,9 @@ func (c *Conf) Export( pathOption ...string ) bool {
 
 type Route struct {
   Name string `json:"name"`
+  IsService bool `json:"service"`
+  ScriptPath string `json:"script"`
+  ScriptCmd string `json:"cmd"`
   Authorization string `json:"authorization"`
   Environment map[string]string `json:"env"`
   Image string `json:"image"`
@@ -225,8 +228,9 @@ func CreateEnv() bool {
   newMapRoutes := make( map[string]*Route ) 
   newMapEnvironmentRoute := make( map[string]string ) 
   newMapEnvironmentRoute["faass-example"] = "true" 
-  newMapRoutes["example"] = &Route {    
-      Name: "exampleContainer",
+  newMapRoutes["example-service"] = &Route {
+      Name: "exampleService",
+      IsService: true,
       Authorization: "Basic YWRtaW46YXplcnR5", 
       Environment: newMapEnvironmentRoute, 
       Image: "nginx", 
@@ -234,6 +238,15 @@ func CreateEnv() bool {
       Retry: 3, 
       Delay: 8, 
       Port: 80, 
+  } 
+  newMapRoutes["example-function"] = &Route {
+      Name: "exampleFunction",
+      IsService: false,
+      ScriptPath: filepath.Join( pathTmpDir, "./example-function.py" ), 
+      ScriptCmd: "python3 /function", 
+      Environment: newMapEnvironmentRoute, 
+      Image: "python3", 
+      Timeout : 500, 
   } 
   newConf := Conf {
     Domain: "https://localhost",
@@ -313,6 +326,38 @@ type Container interface {
 
 type Containers struct {}
 
+func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName string, scriptPath string, fileEnvPath string, imageContainer string, scriptCmd string ) ( cmd *exec.Cmd, err error ) {
+  if routeName == "" {
+    return nil, errors.New( "image's name undefined" ) 
+  } 
+  if scriptPath == "" {
+    return nil, errors.New( "script's path undefined" ) 
+  } 
+  if fileEnvPath == "" {
+    return nil, errors.New( "env file's path undefined" ) 
+  } 
+  if imageContainer == "" {
+    return nil, errors.New( "env file's path undefined" ) 
+  } 
+  cmd = exec.CommandContext(
+    ctx, 
+    "docker",
+    "run",
+    "--rm",
+    "--label",
+    "faass=true",
+    "--mount",
+    "type=bind,source="+scriptPath+",target=/function,readonly",
+    "--hostname",
+    routeName,
+    "--env-file",
+    fileEnvPath,
+    imageContainer,
+    scriptCmd, 
+  )
+  return cmd, nil 
+} 
+
 func ( container *Containers ) Run ( route *Route ) ( err error ) {
   if route.Id == "" {
     _, err := container.Create( route )
@@ -320,6 +365,7 @@ func ( container *Containers ) Run ( route *Route ) ( err error ) {
       return err
     }
   }
+  route.LastRequest = time.Now()
   state, err := container.Check( route )
   if err != nil {
     return err
@@ -764,52 +810,76 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
 
 // -----------------------------------------------
 
+func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.ResponseWriter, r *http.Request ) {
+  // ExecuteRequest ( ctx context.Context, routeName string, scriptPath string, fileEnvPath string, imageContainer string, scriptCmd string ) ( cmd *exec.Cmd, err error ) 
+  return 
+}
+
+
 func lambdaHandler(w http.ResponseWriter, r *http.Request) {
-  HTTPResponse := HTTPResponse { 
+  httpResponse := HTTPResponse { 
     Code: 500, 
     MessageError: "an unexpected error found", 
   }
-  defer HTTPResponse.httpRespond( w ) 
+  defer httpResponse.httpRespond( w ) 
   url := r.URL.Path[8:] // "/lambda/" = 8 signes
   if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true {
     Logger.Info( "bad desired url :", url )
-    HTTPResponse.Code = 400
-    HTTPResponse.MessageError = "bad desired url" 
+    httpResponse.Code = 400
+    httpResponse.MessageError = "bad desired url" 
     return
   }
   Logger.Info( "known real desired url :", r.URL )
   rNameSize := utf8.RuneCountInString( GLOBAL_REGEX_ROUTE_NAME.FindStringSubmatch( url )[1] )
-  rName := url[:rNameSize]
+  routeName := url[:rNameSize]
   rRest := url[rNameSize:]
   if rRest == "" {
     rRest += "/"
   }
   GLOBAL_CONF_MUTEXT.RLock()
-  route, err := GLOBAL_CONF.GetRoute( rName )
+  route, err := GLOBAL_CONF.GetRoute( routeName )
   if err != nil {
-    Logger.Info( "unknow desired url :", rName, "(", err, ")" )
-    HTTPResponse.Code = 404
-    HTTPResponse.MessageError = "unknow desired url" 
+    Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
+    httpResponse.Code = 404
+    httpResponse.MessageError = "unknow desired url" 
     GLOBAL_CONF_MUTEXT.RUnlock()
     return
   } 
+  Logger.Info( "known desired url :", routeName )
   if r.Header.Get( "Authorization" ) != route.Authorization  { 
-    HTTPResponse.Code = 401
-    HTTPResponse.MessageError = "you must be authentified" 
+    httpResponse.Code = 401
+    httpResponse.MessageError = "you must be authentified" 
+    Logger.Info( "known desired url and unauthentified request :", routeName )
     GLOBAL_CONF_MUTEXT.RUnlock()
     return 
   } 
-  Logger.Info( "known desired url :", rName )
-  route.LastRequest = time.Now()
-  err = GLOBAL_CONF.Containers.Run( route )
+  if route.IsService != true {
+    defer GLOBAL_CONF_MUTEXT.RUnlock() 
+    lambdaHandlerFunction( route, &httpResponse, w, r )
+    return 
+  }
   GLOBAL_CONF_MUTEXT.RUnlock()
+  GLOBAL_CONF_MUTEXT.Lock()
+  route, err = GLOBAL_CONF.GetRoute( routeName )
+  if err != nil || route.IsService != true {
+    Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
+    httpResponse.Code = 404
+    httpResponse.MessageError = "unknow desired url" 
+    GLOBAL_CONF_MUTEXT.RUnlock()
+    return
+  } 
+  err = GLOBAL_CONF.Containers.Run( route )
+  routeIpAdress := route.IpAdress
+  routePort := route.Port
+  routeId := route.Id
+  GLOBAL_CONF_MUTEXT.Unlock()
   if err != nil {
-    Logger.Warning( "unknow state of container for route :", rName, "(", err, ")" )
-    HTTPResponse.Code = 503
-    HTTPResponse.MessageError = "unknow state of container" 
+    Logger.Warning( "unknow state of container for route :", routeName, "(", err, ")" )
+    httpResponse.Code = 503
+    httpResponse.MessageError = "unknow state of container" 
     return
   }
-  Logger.Debug( "running container for desired route :", route.IpAdress, "(cId", route.Id, ")" )
+  Logger.Debug( "running container for desired route :", routeIpAdress, "(cId", route.Id, ")" )
   if r.URL.RawQuery != "" {
     rRest += "?"+r.URL.RawQuery
   }
@@ -818,20 +888,20 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   }
   dURL := fmt.Sprintf(
     "http://%s%s",
-    route.IpAdress+":"+strconv.Itoa( route.Port ) ,
+    routeIpAdress+":"+strconv.Itoa( routePort ) ,
     rRest,
   )
-  Logger.Debug( "new url for desired route :", dURL, "(cId", route.Id, ")" )
+  Logger.Debug( "new url for desired route :", dURL, "(cId", routeId, ")" )
   proxyReq, err := http.NewRequest(
     r.Method,
     dURL,
     r.Body,
   )
   if err != nil {
-    Logger.Warning( "bad gateway for container as route :", rName, "(", err, ")" )
-    HTTPResponse.Code = 502
-    HTTPResponse.MessageError = "bad gateway for container" 
-    HTTPResponse.httpRespond( w ) 
+    Logger.Warning( "bad gateway for container as route :", routeName, "(", err, ")" )
+    httpResponse.Code = 502
+    httpResponse.MessageError = "bad gateway for container" 
+    httpResponse.httpRespond( w ) 
     return
   }
   proxyReq.Header.Set( "Host", r.Host )
@@ -846,20 +916,20 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   }
   proxyRes, err := client.Do( proxyReq )
   if err != nil {
-    Logger.Warning( "request failed to container as route :", rName, "(", err, ")" )
-    HTTPResponse.Code = 500
-    HTTPResponse.MessageError = "request failed to container"
+    Logger.Warning( "request failed to container as route :", routeName, "(", err, ")" )
+    httpResponse.Code = 500
+    httpResponse.MessageError = "request failed to container"
     return
   }
-  Logger.Debug( "result of desired route :", proxyRes.StatusCode, "(cId", route.Id, ")" )
+  Logger.Debug( "result of desired route :", proxyRes.StatusCode, "(cId", routeId, ")" )
   wH := w.Header()
   for header, values := range proxyRes.Header {
     for _, value := range values {
       wH.Add(header, value)
     }
   }
-  HTTPResponse.Code = proxyRes.StatusCode 
-  HTTPResponse.IOFile = proxyRes.Body
+  httpResponse.Code = proxyRes.StatusCode 
+  httpResponse.IOFile = proxyRes.Body
 }
 
 // -----------------------------------------------
