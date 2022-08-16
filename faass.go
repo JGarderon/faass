@@ -147,7 +147,7 @@ type Route struct {
   Name string `json:"name"`
   IsService bool `json:"service"`
   ScriptPath string `json:"script"`
-  ScriptCmd string `json:"cmd"`
+  ScriptCmd []string `json:"cmd"`
   Authorization string `json:"authorization"`
   Environment map[string]string `json:"env"`
   Image string `json:"image"`
@@ -159,6 +159,23 @@ type Route struct {
   Id string
   IpAdress string
   Mutex sync.RWMutex
+}
+
+func ( route *Route ) CreateFileEnv() ( fileEnvPath string, err error ) {
+  fileEnvPath = filepath.Join(
+    GLOBAL_CONF.GetParam("TmpDir"),
+    route.Name+".env", 
+  )
+  fileEnv, err := os.Create( fileEnvPath )
+  if err != nil {
+    Logger.Error( "unable to create container file '", fileEnvPath, "' env : ", err )
+    return "", errors.New( "env file for container failed" )
+  }
+  for key, value := range route.Environment {
+    fileEnv.WriteString( key+"="+value+"\n" )
+  }
+  fileEnv.Close()
+  return fileEnvPath, nil
 }
 
 // -----------------------------------------------
@@ -243,7 +260,7 @@ func CreateEnv() bool {
       Name: "exampleFunction",
       IsService: false,
       ScriptPath: filepath.Join( pathTmpDir, "./example-function.py" ), 
-      ScriptCmd: "python3 /function", 
+      ScriptCmd: []string{ "python3", "/function" }, 
       Environment: newMapEnvironmentRoute, 
       Image: "python3", 
       Timeout : 500, 
@@ -326,7 +343,7 @@ type Container interface {
 
 type Containers struct {}
 
-func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName string, scriptPath string, fileEnvPath string, imageContainer string, scriptCmd string ) ( cmd *exec.Cmd, err error ) {
+func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName string, scriptPath string, fileEnvPath string, imageContainer string, scriptCmd []string ) ( cmd *exec.Cmd, err error ) {
   if routeName == "" {
     return nil, errors.New( "image's name undefined" ) 
   } 
@@ -339,9 +356,7 @@ func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName s
   if imageContainer == "" {
     return nil, errors.New( "env file's path undefined" ) 
   } 
-  cmd = exec.CommandContext(
-    ctx, 
-    "docker",
+  args := []string{ 
     "run",
     "--rm",
     "--label",
@@ -352,9 +367,10 @@ func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName s
     routeName,
     "--env-file",
     fileEnvPath,
-    imageContainer,
-    scriptCmd, 
-  )
+    imageContainer, 
+  } 
+  args = append(args, scriptCmd[:]...)
+  cmd = exec.CommandContext( ctx, "docker", args... )
   return cmd, nil 
 } 
 
@@ -412,7 +428,6 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
   route.Mutex.Lock()
   defer route.Mutex.Unlock()
   fileEnv, err := os.Create( fileEnvPath )
-  defer fileEnv.Close()
   if err != nil {
     Logger.Error( "unable to create container file env : ", err )
     return "failed", errors.New( "env file for container failed" )
@@ -420,6 +435,7 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
   for key, value := range route.Environment {
     fileEnv.WriteString( key+"="+value+"\n" )
   }
+  fileEnv.Close()
   pathContainerTmpDir := filepath.Join(
     GLOBAL_CONF.GetParam("TmpDir"),
     route.Name, 
@@ -811,17 +827,41 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
 // -----------------------------------------------
 
 func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.ResponseWriter, r *http.Request ) {
-  // ExecuteRequest ( ctx context.Context, routeName string, scriptPath string, fileEnvPath string, imageContainer string, scriptCmd string ) ( cmd *exec.Cmd, err error ) 
+  ctx, cancel := context.WithTimeout( 
+    context.Background(), 
+    1000*time.Millisecond, // temps à modifier par conf 
+  ) 
+  defer cancel() 
+  fileEnvPath, err := route.CreateFileEnv()
+  if err != nil {
+    httpResponse.MessageError = "unable to create environment file"
+    return 
+  }
+  cmd, err := GLOBAL_CONF.Containers.ExecuteRequest( 
+    ctx, 
+    route.Name, 
+    route.ScriptPath, 
+    fileEnvPath, 
+    route.Image, 
+    route.ScriptCmd, 
+  ) 
+  out, err := cmd.Output() // pas de gestion des retours d'erreur (stderr) 
+  if err != nil { 
+    Logger.Warning( "unable to run request in container :", err )
+    httpResponse.MessageError = "unable to run request in container (time out or failed)" 
+  } else {
+    httpResponse.Code = 200 
+    w.Write( out ) 
+  }
   return 
 }
-
 
 func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   httpResponse := HTTPResponse { 
     Code: 500, 
     MessageError: "an unexpected error found", 
   }
-  defer httpResponse.httpRespond( w ) 
+  // defer httpResponse.httpRespond( w ) 
   url := r.URL.Path[8:] // "/lambda/" = 8 signes
   if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true {
     Logger.Info( "bad desired url :", url )
