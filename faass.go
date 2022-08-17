@@ -32,6 +32,7 @@ import (
   "os/signal"
   "syscall"
   "context"
+  "encoding/binary" 
 )
 
 // -----------------------------------------------
@@ -826,13 +827,20 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
 
 // -----------------------------------------------
 
+type FunctionResponseHeaders struct {
+  Code int `json:"code"`
+  Headers map[string]string `json:"headers"`
+} 
+
+// -----------------------------------------------
+
 func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.ResponseWriter, r *http.Request ) {
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
     1000*time.Millisecond, // temps à modifier par conf 
   ) 
   defer cancel() 
-  fileEnvPath, err := route.CreateFileEnv()
+  fileEnvPath, err := route.CreateFileEnv() // à forcer pour ne rien faire si fichier existant 
   if err != nil {
     httpResponse.MessageError = "unable to create environment file"
     return 
@@ -846,13 +854,31 @@ func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.Res
     route.ScriptCmd, 
   ) 
   out, err := cmd.Output() // pas de gestion des retours d'erreur (stderr) 
+  fmt.Println( "out", out )
   if err != nil { 
     Logger.Warning( "unable to run request in container :", err )
     httpResponse.MessageError = "unable to run request in container (time out or failed)" 
-  } else {
-    httpResponse.Code = 200 
-    w.Write( out ) 
   }
+  httpResponse.MessageError = "unable to run request in container (incorrect response)" 
+  if len(out) < 4 {
+    Logger.Warning( "incorrect size of headers'length from container" )
+  }
+  sizeHeaders := binary.BigEndian.Uint32( out[0:4] ) 
+  fmt.Println( "sizeHeaders", sizeHeaders )
+  if sizeHeaders < 1 {
+    Logger.Warning( "headers of response null from container" )
+  }
+  var responseHeaders FunctionResponseHeaders
+  err = json.Unmarshal( out[4:], &responseHeaders )
+  if err != nil {
+    Logger.Warning( "incorrect headers payload of response from container" )
+  }
+  httpResponse.Code = responseHeaders.Code
+  header := w.Header()
+  for key, value := range responseHeaders.Headers {
+    header.Add( "x-faas-"+key, value ) 
+  } 
+  // w.Write( out ) 
   return 
 }
 
@@ -894,7 +920,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     return 
   } 
   if route.IsService != true {
-    defer GLOBAL_CONF_MUTEXT.RUnlock() 
+    defer GLOBAL_CONF_MUTEXT.RUnlock() // à envoyer en fonction anonyme à 'lambdaHandlerFunction' 
     lambdaHandlerFunction( route, &httpResponse, w, r )
     return 
   }
