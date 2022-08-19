@@ -14,13 +14,10 @@ import (
   "encoding/json"
   "io/ioutil"
   "os"
-  "os/exec"
-  "reflect"
   "errors"
   "flag"
   "net/http"
   "strings"
-  "log"
   "time"
   "fmt"
   "sync"
@@ -37,12 +34,13 @@ import (
   "logger"
   "httpresponse"
   "itinerary"
+  "configuration"
 )
 
 // -----------------------------------------------
 
 var GLOBAL_CONF_PATH string
-var GLOBAL_CONF Conf
+var GLOBAL_CONF configuration.Conf
 var GLOBAL_CONF_MUTEXT sync.RWMutex 
 
 var GLOBAL_REGEX_ROUTE_NAME *regexp.Regexp
@@ -63,96 +61,6 @@ const (
   ExitConfRegexUrlKo
   ExitConfShuttingServerFailed
 )
-
-// -----------------------------------------------
-
-type Conf struct {
-  Containers Containers
-  Domain string `json:"domain"`
-  Authorization string `json:"authorization"`
-  IncomingPort int `json:"listen"`
-  DelayCleaningContainers int `json:"delay"`
-  UI string `json:"ui"`
-  TmpDir string `json:"tmp"`
-  Prefix string `json:"prefix"`
-  Routes map[string]*itinerary.Route `json:"routes"`
-}
-
-func ConfImport( pathOption ...string ) bool {
-  path := GLOBAL_CONF_PATH
-  if len( pathOption ) < 0 {
-    path = pathOption[0]
-  }
-  jsonFileInput, err := os.Open( path )
-  if err != nil {
-    log.Println( "ConfImport (open) :", err )
-    return false
-  }
-  defer jsonFileInput.Close()
-  byteValue, err := ioutil.ReadAll(jsonFileInput)
-  if err != nil {
-    log.Println( "ConfImport (ioutil) :", err )
-    return false
-  }
-  json.Unmarshal( byteValue, &GLOBAL_CONF )
-  if GLOBAL_CONF.DelayCleaningContainers < 5 {
-    GLOBAL_CONF.DelayCleaningContainers = 5
-    Logger.Warning( "new value for delay cleaning containers : min 5 (seconds)" ) 
-  }
-  if GLOBAL_CONF.DelayCleaningContainers > 60 {
-    GLOBAL_CONF.DelayCleaningContainers = 60 
-    Logger.Warning( "new value for delay cleaning containers : max 60 (seconds)" ) 
-  }
-  return true
-}
-
-func (c *Conf) GetParam( key string, forceMutex bool ) string {
-  if forceMutex == true && GLOBAL_CONF.Authorization != "" {
-    GLOBAL_CONF_MUTEXT.RLock() 
-    defer GLOBAL_CONF_MUTEXT.RUnlock() 
-  }
-  e := reflect.ValueOf( c ).Elem()
-  r := e.FieldByName( key )
-  if r.IsValid() {
-    return r.Interface().(string)
-  }
-  return ""
-}
-
-func (c *Conf) GetRoute( key string ) (route *itinerary.Route, err error) {
-  if route, ok := c.Routes[key]; ok {
-    return route, nil
-  }
-  return nil, errors.New( "unknow routes" )
-}
-
-func (c *Conf) Export( pathOption ...string ) bool {
-  path := GLOBAL_CONF_PATH
-  if len( pathOption ) < 0 {
-    path = pathOption[0]
-  }
-  v, err := json.Marshal( c )
-  if err != nil {
-    log.Fatal( "export conf (Marshal) :", err )
-    return false
-  }
-  jsonFileOutput, err := os.Create( path )
-  defer jsonFileOutput.Close()
-  if err != nil {
-    log.Println( "export conf (open) :", err )
-    return false
-  }
-  _, err = jsonFileOutput.Write( v )
-  if err != nil {
-    log.Println( "export conf (write) :", err )
-    return false
-  }
-  return true
-}
-
-// -----------------------------------------------
-
-
 
 // -----------------------------------------------
 
@@ -210,7 +118,7 @@ func CreateEnv() bool {
       Image: "python3", 
       Timeout : 500, 
   } 
-  newConf := Conf {
+  newConf := configuration.Conf {
     Domain: "https://localhost",
     Authorization: "Basic YWRtaW46YXplcnR5", // admin:azerty 
     IncomingPort: 9090,
@@ -219,7 +127,7 @@ func CreateEnv() bool {
     Prefix: "lambda",
     Routes: newMapRoutes, 
   }
-  if !newConf.Export() {
+  if !newConf.Export( GLOBAL_CONF_PATH ) {
     Logger.Error( "Unable to create environment : conf" )
     return false
   }
@@ -252,7 +160,7 @@ func StartEnv() {
       os.Exit( ExitConfCreateKo )
     }
   }
-  if !ConfImport() {
+  if !GLOBAL_CONF.ConfImport( GLOBAL_CONF_PATH ) {
     Logger.Panic( "Unable to load configuration" )
     os.Exit( ExitConfLoadKo )
   }
@@ -275,221 +183,6 @@ func StartEnv() {
     rootPath,
     "./tmp",
   )
-}
-
-// -----------------------------------------------
-
-type Containers struct {}
-
-func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName string, scriptPath string, fileEnvPath string, imageContainer string, scriptCmd []string ) ( cmd *exec.Cmd, err error ) {
-  if routeName == "" {
-    return nil, errors.New( "image's name undefined" ) 
-  } 
-  if scriptPath == "" {
-    return nil, errors.New( "script's path undefined" ) 
-  } 
-  if fileEnvPath == "" {
-    return nil, errors.New( "env file's path undefined" ) 
-  } 
-  if imageContainer == "" {
-    return nil, errors.New( "env file's path undefined" ) 
-  } 
-  args := []string{ 
-    "run", 
-      "-i", 
-      "--rm", 
-      "-a", "stderr", 
-      "-a", "stdout", 
-      "-a", "stdin", 
-      "--label", "faass=true",
-      "--mount", "type=bind,source="+scriptPath+",target=/function,readonly",
-      "--hostname", routeName,
-      "--env-file", fileEnvPath,
-      imageContainer, 
-  } 
-  args = append(args, scriptCmd[:]...)
-  cmd = exec.CommandContext( ctx, "docker", args... )
-  return cmd, nil 
-} 
-
-func ( container *Containers ) Run ( route *itinerary.Route ) ( err error ) {
-  route.Mutex.Lock()
-  if route.Id == "" {
-    _, err := container.Create( route )
-    if err != nil {
-      route.Mutex.Unlock()
-      return err
-    } 
-  }
-  route.LastRequest = time.Now()
-  route.Mutex.Unlock()
-  state, err := container.Check( route )
-  if err != nil {
-    return err
-  }
-  if state == "running" {
-    return nil
-  }
-  started, err := container.Start( route )
-  cIpAdress, err := container.GetInfos(
-    route,
-    "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-  )
-  if err != nil {
-    return err
-  }
-  route.IpAdress = cIpAdress
-  if err != nil || started == false {
-    return err
-  }
-  for i := 0; i < route.Retry; i++ {
-    time.Sleep( time.Duration( route.Timeout ) * time.Millisecond )
-    state, err = container.Check( route )
-    if err != nil {
-      return err
-    }
-    if state == "running" {
-      return nil
-    }
-  }
-  return errors.New( "Container has failed to start in time" )
-}
-
-func ( container *Containers ) Create ( route *itinerary.Route ) ( state string, err error ) {
-  if route.Image == "" {
-    return "failed", errors.New( "Image container has null value" )
-  }
-  if route.Name == "" {
-    return "failed", errors.New( "Name container has null value" )
-  }
-  tmpDir := GLOBAL_CONF.GetParam("TmpDir", false)
-  fileEnvPath := filepath.Join(
-    tmpDir,
-    route.Name+".env", 
-  )
-  fileEnv, err := os.Create( fileEnvPath )
-  if err != nil {
-    Logger.Error( "unable to create container file env : ", err )
-    return "failed", errors.New( "env file for container failed" )
-  }
-  for key, value := range route.Environment {
-    fileEnv.WriteString( key+"="+value+"\n" )
-  }
-  fileEnv.Close()
-  pathContainerTmpDir := filepath.Join(
-    tmpDir,
-    route.Name, 
-  )
-  if err := os.MkdirAll( pathContainerTmpDir, os.ModePerm ); err != nil {
-    Logger.Error( "unable to create tmp dir for container : ", err )
-    return "failed", errors.New( "tmp dir for container failed" )
-  }
-  cmd := exec.Command(
-    "docker", "container", "create",
-      "--label", "faass=true",
-      "--mount", "type=bind,source="+pathContainerTmpDir+",target=/hostdir",
-      "--hostname", route.Name,
-      "--env-file", fileEnvPath,
-      route.Image,
-  )
-  o, err := cmd.CombinedOutput()
-  cId := strings.TrimSuffix( string( o ), "\n" )
-  if err != nil {
-    Logger.Error( "container create in error : ", err )
-    return "undetermined", errors.New( cId )
-  }
-  route.Id = cId 
-  cIP, err := container.GetInfos( route, "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" )
-  if err != nil {
-    Logger.Errorf( "container '%v' (cId %v) check failed", route.Name, route.Id, err )
-    return "undetermined", errors.New( cIP )
-  }
-  route.IpAdress = cIP
-  return cId, nil
-}
-
-func ( container *Containers ) Check ( route *itinerary.Route ) ( state string, err error ) {
-  // docker container ls -a --filter 'status=created' --format "{{.ID}}" | xargs docker rm
-  if route.Id == "" {
-    return "undetermined", errors.New( "ID container has null string" )
-  }
-  cState, err := container.GetInfos( route, "{{.State.Status}}" )
-  if err != nil {
-    Logger.Errorf( "container '%s' check failed", route.Name, err )
-    return "undetermined", errors.New( cState )
-  }
-  return cState, nil
-}
-
-func ( container *Containers ) Start ( route *itinerary.Route ) ( state bool, err error ) {
-  if route.Id == "" {
-    return false, errors.New( "ID container has null string" )
-  }
-  cmd := exec.Command(
-    "docker", "container", "restart",
-      route.Id,
-  )
-  o, err := cmd.CombinedOutput()
-  cId := strings.TrimSuffix( string( o ), "\n" ) 
-  if err != nil || cId != route.Id {
-    return false, errors.New( cId )
-  }
-  return true, nil
-}
-
-func ( container *Containers ) Stop ( route *itinerary.Route ) ( state bool, err error ) {
-  if route.Id == "" {
-    return false, errors.New( "ID container has null string" )
-  }
-  cmd := exec.Command(
-    "docker", "container", "stop",
-      route.Id,
-  )
-  o, err := cmd.CombinedOutput()
-  cId := strings.TrimSuffix( string( o ), "\n" ) 
-  if err != nil || cId != route.Id {
-    return false, errors.New( cId )
-  }
-  return true, nil
-}
-
-func ( container *Containers ) Remove ( route *itinerary.Route ) ( state bool, err error ) {
-   if route.Id == "" {
-    return false, errors.New( "ID container has null string" )
-  }
-  cmd := exec.Command(
-    "docker", "container", "rm",
-      route.Id,
-  )
-  o, err := cmd.CombinedOutput()
-  cId := strings.TrimSuffix( string( o ), "\n" ) 
-  if err != nil || cId != route.Id {
-    return false, errors.New( cId )
-  }
-  route.Id = ""
-  return true, nil
-}
-
-func ( container *Containers ) GetInfos ( route *itinerary.Route, pattern string ) ( infos string, err error ) {
-   if route.Id == "" {
-    return "", errors.New( "ID container has null string" )
-  }
-  cmd := exec.Command(
-    "docker", "container", "inspect",
-      "-f", pattern,
-        route.Id,
-  )
-  o, err := cmd.CombinedOutput()
-  cInfos := strings.TrimSuffix( string( o ), "\n" ) 
-  if err != nil {
-    return "", errors.New( 
-      fmt.Sprintf( 
-        "failed to get infos for route %v", 
-        route.Id, 
-      ), 
-    ) 
-  }
-  return cInfos, nil
 }
 
 // -----------------------------------------------
@@ -701,7 +394,9 @@ func lambdaHandlerFunction( route *itinerary.Route, httpResponse *httpresponse.R
     time.Duration( route.Timeout ) * time.Millisecond, 
   ) 
   defer cancel() 
-  tmpDir := GLOBAL_CONF.GetParam("TmpDir", true)
+  GLOBAL_CONF_MUTEXT.RLock() 
+  tmpDir := GLOBAL_CONF.TmpDir
+  GLOBAL_CONF_MUTEXT.RUnlock() 
   fileEnvPath, err := route.CreateFileEnv( tmpDir ) 
   if err != nil {
     httpResponse.MessageError = "unable to create environment file"
@@ -832,6 +527,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   GLOBAL_CONF_MUTEXT.RUnlock()
   GLOBAL_CONF_MUTEXT.Lock()
   route, err = GLOBAL_CONF.GetRoute( routeName )
+  tmpDir := GLOBAL_CONF.TmpDir
   if err != nil || route.IsService != true {
     Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
     httpResponse.Code = 404
@@ -839,7 +535,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     GLOBAL_CONF_MUTEXT.RUnlock()
     return
   } 
-  err = GLOBAL_CONF.Containers.Run( route )
+  err = GLOBAL_CONF.Containers.Run( tmpDir, route )
   routeIpAdress := route.IpAdress
   routePort := route.Port
   routeId := route.Id
@@ -984,7 +680,7 @@ func main() {
 
   muxer := http.NewServeMux()
 
-  UIPath := GLOBAL_CONF.GetParam( "UI", true )
+  UIPath := GLOBAL_CONF.UI 
   if UIPath != "" {
     Logger.Info( "UI path found :", UIPath )
     muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
