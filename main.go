@@ -33,6 +33,8 @@ import (
   "syscall"
   "context"
   "encoding/binary" 
+  // -----------
+  "logger"
 )
 
 // -----------------------------------------------
@@ -44,6 +46,10 @@ var GLOBAL_CONF_MUTEXT sync.RWMutex
 var GLOBAL_REGEX_ROUTE_NAME *regexp.Regexp
 
 var GLOBAL_WAIT_GROUP sync.WaitGroup
+
+// -----------------------------------------------
+
+var Logger logger.Logger
 
 // -----------------------------------------------
 
@@ -184,47 +190,6 @@ func ( route *Route ) CreateFileEnv() ( fileEnvPath string, err error ) {
 
 // -----------------------------------------------
 
-type logger struct {
-  Debug       func(v ...any)
-  Debugf      func(f string, v ...any)
-  Info        func(v ...any)
-  Infof       func(f string, v ...any)
-  Warning     func(v ...any)
-  Warningf    func(f string, v ...any)
-  Error       func(v ...any)
-  Errorf      func(f string, v ...any)
-  Panic       func(v ...any)
-  Panicf      func(f string, v ...any)
-}
-
-var Logger *logger
-
-func InitLogger() {
-
-  Logger = &logger { 
-    Debug     : log.New( os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
-    Debugf     : log.New( os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
-    Info      : log.New( os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
-    Infof      : log.New( os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
-    Warning   : log.New( os.Stderr, "WARNING: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
-    Warningf   : log.New( os.Stderr, "WARNING: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
-    Error     : log.New( os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
-    Errorf     : log.New( os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
-    Panic     : log.New( os.Stderr, "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
-    Panicf     : log.New( os.Stderr, "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
-  }
-}
-
-func TestLogger( m *string ) {
-  Logger.Debug( *m )
-  Logger.Info( *m )
-  Logger.Warning( *m )
-  Logger.Error( *m )
-  Logger.Panic( *m )   
-}
-
-// -----------------------------------------------
-
 func CreateRegexUrl() {
   regex, err := regexp.Compile( "^([a-z0-9_-]+)" )
   if err != nil {
@@ -309,7 +274,7 @@ func StartEnv() {
   prepareEnv := flag.Bool( "prepare", false, "create environment (conf+dir ; bool)" )
   flag.Parse()
   if *testLogger != "" {
-    TestLogger( testLogger ) 
+    Logger.Test( *testLogger ) 
   }
   GLOBAL_CONF_MUTEXT.Lock() 
   defer GLOBAL_CONF_MUTEXT.Unlock() 
@@ -364,25 +329,17 @@ func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName s
     return nil, errors.New( "env file's path undefined" ) 
   } 
   args := []string{ 
-    "run",
-    "-i", 
-    "--rm", 
-    "-a", 
-    "stderr", 
-    "-a",
-    "stdout", 
-    "-a", 
-    "stdin", 
-    "--rm",
-    "--label",
-    "faass=true",
-    "--mount",
-    "type=bind,source="+scriptPath+",target=/function,readonly",
-    "--hostname",
-    routeName,
-    "--env-file",
-    fileEnvPath,
-    imageContainer, 
+    "run", 
+      "-i", 
+      "--rm", 
+      "-a", "stderr", 
+      "-a", "stdout", 
+      "-a", "stdin", 
+      "--label", "faass=true",
+      "--mount", "type=bind,source="+scriptPath+",target=/function,readonly",
+      "--hostname", routeName,
+      "--env-file", fileEnvPath,
+      imageContainer, 
   } 
   args = append(args, scriptCmd[:]...)
   cmd = exec.CommandContext( ctx, "docker", args... )
@@ -1095,7 +1052,7 @@ func RunServer ( httpServer *http.Server ) {
 
 func main() { 
 
-  InitLogger()
+  Logger.Init()
   StartEnv()
 
   CreateRegexUrl()

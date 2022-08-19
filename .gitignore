@@ -30,5 +30,6 @@ server.key
 ### --- Poubelle 
 
 tmp/
+src/test
 sav-*
 
