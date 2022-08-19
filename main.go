@@ -36,6 +36,7 @@ import (
   // -----------
   "logger"
   "httpresponse"
+  "itinerary"
 )
 
 // -----------------------------------------------
@@ -74,7 +75,7 @@ type Conf struct {
   UI string `json:"ui"`
   TmpDir string `json:"tmp"`
   Prefix string `json:"prefix"`
-  Routes map[string]*Route `json:"routes"`
+  Routes map[string]*itinerary.Route `json:"routes"`
 }
 
 func ConfImport( pathOption ...string ) bool {
@@ -118,7 +119,7 @@ func (c *Conf) GetParam( key string, forceMutex bool ) string {
   return ""
 }
 
-func (c *Conf) GetRoute( key string ) (route *Route, err error) {
+func (c *Conf) GetRoute( key string ) (route *itinerary.Route, err error) {
   if route, ok := c.Routes[key]; ok {
     return route, nil
   }
@@ -151,43 +152,7 @@ func (c *Conf) Export( pathOption ...string ) bool {
 
 // -----------------------------------------------
 
-type Route struct {
-  Name string `json:"name"`
-  IsService bool `json:"service"`
-  ScriptPath string `json:"script"`
-  ScriptCmd []string `json:"cmd"`
-  Authorization string `json:"authorization"`
-  Environment map[string]string `json:"env"`
-  Image string `json:"image"`
-  Timeout int `json:"timeout"`
-  Retry int `json:"retry"`
-  Delay int `json:"delay"`
-  Port int `json:"port"`
-  LastRequest time.Time 
-  Id string
-  IpAdress string
-  Mutex sync.RWMutex
-}
 
-func ( route *Route ) CreateFileEnv() ( fileEnvPath string, err error ) {
-  fileEnvPath = filepath.Join(
-    GLOBAL_CONF.GetParam("TmpDir", true),
-    route.Name+".env", 
-  )
-  if _,err := os.Stat( fileEnvPath ); err == nil {
-    return fileEnvPath, nil 
-  } 
-  fileEnv, err := os.Create( fileEnvPath )
-  if err != nil {
-    Logger.Error( "unable to create container file '", fileEnvPath, "' env : ", err )
-    return "", errors.New( "env file for container failed" )
-  }
-  for key, value := range route.Environment {
-    fileEnv.WriteString( key+"="+value+"\n" )
-  }
-  fileEnv.Close()
-  return fileEnvPath, nil
-}
 
 // -----------------------------------------------
 
@@ -222,10 +187,10 @@ func CreateEnv() bool {
     rootPath,
     "./tmp",
   )
-  newMapRoutes := make( map[string]*Route ) 
+  newMapRoutes := make( map[string]*itinerary.Route ) 
   newMapEnvironmentRoute := make( map[string]string ) 
   newMapEnvironmentRoute["faass-example"] = "true" 
-  newMapRoutes["example-service"] = &Route {
+  newMapRoutes["example-service"] = &itinerary.Route {
       Name: "exampleService",
       IsService: true,
       Authorization: "Basic YWRtaW46YXplcnR5", 
@@ -236,7 +201,7 @@ func CreateEnv() bool {
       Delay: 8, 
       Port: 80, 
   } 
-  newMapRoutes["example-function"] = &Route {
+  newMapRoutes["example-function"] = &itinerary.Route {
       Name: "exampleFunction",
       IsService: false,
       ScriptPath: filepath.Join( pathTmpDir, "./example-function.py" ), 
@@ -347,7 +312,7 @@ func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName s
   return cmd, nil 
 } 
 
-func ( container *Containers ) Run ( route *Route ) ( err error ) {
+func ( container *Containers ) Run ( route *itinerary.Route ) ( err error ) {
   route.Mutex.Lock()
   if route.Id == "" {
     _, err := container.Create( route )
@@ -390,7 +355,7 @@ func ( container *Containers ) Run ( route *Route ) ( err error ) {
   return errors.New( "Container has failed to start in time" )
 }
 
-func ( container *Containers ) Create ( route *Route ) ( state string, err error ) {
+func ( container *Containers ) Create ( route *itinerary.Route ) ( state string, err error ) {
   if route.Image == "" {
     return "failed", errors.New( "Image container has null value" )
   }
@@ -443,7 +408,7 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
   return cId, nil
 }
 
-func ( container *Containers ) Check ( route *Route ) ( state string, err error ) {
+func ( container *Containers ) Check ( route *itinerary.Route ) ( state string, err error ) {
   // docker container ls -a --filter 'status=created' --format "{{.ID}}" | xargs docker rm
   if route.Id == "" {
     return "undetermined", errors.New( "ID container has null string" )
@@ -456,7 +421,7 @@ func ( container *Containers ) Check ( route *Route ) ( state string, err error 
   return cState, nil
 }
 
-func ( container *Containers ) Start ( route *Route ) ( state bool, err error ) {
+func ( container *Containers ) Start ( route *itinerary.Route ) ( state bool, err error ) {
   if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
@@ -472,7 +437,7 @@ func ( container *Containers ) Start ( route *Route ) ( state bool, err error ) 
   return true, nil
 }
 
-func ( container *Containers ) Stop ( route *Route ) ( state bool, err error ) {
+func ( container *Containers ) Stop ( route *itinerary.Route ) ( state bool, err error ) {
   if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
@@ -488,7 +453,7 @@ func ( container *Containers ) Stop ( route *Route ) ( state bool, err error ) {
   return true, nil
 }
 
-func ( container *Containers ) Remove ( route *Route ) ( state bool, err error ) {
+func ( container *Containers ) Remove ( route *itinerary.Route ) ( state bool, err error ) {
    if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
@@ -505,7 +470,7 @@ func ( container *Containers ) Remove ( route *Route ) ( state bool, err error )
   return true, nil
 }
 
-func ( container *Containers ) GetInfos ( route *Route, pattern string ) ( infos string, err error ) {
+func ( container *Containers ) GetInfos ( route *itinerary.Route, pattern string ) ( infos string, err error ) {
    if route.Id == "" {
     return "", errors.New( "ID container has null string" )
   }
@@ -585,7 +550,7 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
       HTTPResponse.MessageError = "the request's body is an invalid"
       return 
     } 
-    var newRoute = Route {}
+    var newRoute = itinerary.Route {}
     err = json.Unmarshal( body, &newRoute ) 
     if err != nil { 
       Logger.Error( "API import route (parse body) :", err )
@@ -730,13 +695,14 @@ type FunctionResponseHeaders struct {
 
 // -----------------------------------------------
 
-func lambdaHandlerFunction( route *Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
+func lambdaHandlerFunction( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
     time.Duration( route.Timeout ) * time.Millisecond, 
   ) 
   defer cancel() 
-  fileEnvPath, err := route.CreateFileEnv() 
+  tmpDir := GLOBAL_CONF.GetParam("TmpDir", true)
+  fileEnvPath, err := route.CreateFileEnv( tmpDir ) 
   if err != nil {
     httpResponse.MessageError = "unable to create environment file"
     return 
