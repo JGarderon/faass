@@ -35,6 +35,7 @@ import (
   "encoding/binary" 
   // -----------
   "logger"
+  "httpresponse"
 )
 
 // -----------------------------------------------
@@ -528,58 +529,13 @@ func ( container *Containers ) GetInfos ( route *Route, pattern string ) ( infos
 
 // -----------------------------------------------
 
-type HTTPResponse struct {
-  Code int 
-  MessageError string
-  Payload interface{}
-  IOFile io.ReadCloser
-}
-
-func ( httpR *HTTPResponse ) httpRespond( w http.ResponseWriter ) bool { 
-  if httpR.Code < 300 {
-    if httpR.Payload != nil {
-      HTTPResponse, err := json.Marshal( httpR.Payload ) 
-      if err != nil { 
-        w.WriteHeader( 500 ) 
-        w.Header().Set( "Content-type", "application/problem+json" )
-        Logger.Error( "API export conf (Marshal) :", err ) 
-        httpR.Code = 500
-        return false
-      } 
-      w.WriteHeader( httpR.Code ) 
-      w.Header().Set( "Content-type", "application/json" ) 
-      w.Write( HTTPResponse ) 
-    } else if httpR.IOFile != nil { 
-      w.WriteHeader( httpR.Code ) 
-      io.Copy( w, httpR.IOFile )
-    } else {
-      w.WriteHeader( httpR.Code ) 
-    }
-    return true 
-  } else { 
-    w.WriteHeader( httpR.Code ) 
-    w.Header().Set( "Content-type", "application/problem+json" )
-    w.Write( 
-      []byte( 
-        fmt.Sprintf( 
-          `{"message":"%v"}`, 
-          httpR.MessageError, 
-        ),
-      ),
-    )
-    return true
-  }
-}
-
-// -----------------------------------------------
-
 func ApiHandler(w http.ResponseWriter, r *http.Request) { 
   if r.Header.Get( "Authorization" ) != GLOBAL_CONF.Authorization  { 
-    HTTPResponse := HTTPResponse { 
+    HTTPResponse := httpresponse.Response { 
       Code: 401, 
       MessageError: "you must be authentified", 
     }
-    HTTPResponse.httpRespond( w ) 
+    HTTPResponse.Respond( w ) 
     return 
   } 
   pathExtract := r.URL.Path[5:] // "/api/" = 5 signes 
@@ -602,11 +558,11 @@ func ApiHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
-  HTTPResponse := &HTTPResponse { 
+  HTTPResponse := &httpresponse.Response { 
     Code: 500,
     MessageError: "an unexpected error has occurred", 
   } 
-  defer HTTPResponse.httpRespond( w ) 
+  defer HTTPResponse.Respond( w ) 
   switch r.Method  {
   case "GET":
     GLOBAL_CONF_MUTEXT.RLock() 
@@ -697,11 +653,11 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
-  HTTPResponse := &HTTPResponse { 
+  HTTPResponse := &httpresponse.Response { 
     Code: 500,
     MessageError: "an unexpected error has occurred", 
   }
-  defer HTTPResponse.httpRespond( w ) 
+  defer HTTPResponse.Respond( w ) 
   switch r.Method  {
   case "GET": 
     HTTPResponse.Code = 200 
@@ -774,7 +730,7 @@ type FunctionResponseHeaders struct {
 
 // -----------------------------------------------
 
-func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.ResponseWriter, r *http.Request ) {
+func lambdaHandlerFunction( route *Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
     time.Duration( route.Timeout ) * time.Millisecond, 
@@ -867,11 +823,11 @@ func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.Res
 }
 
 func lambdaHandler(w http.ResponseWriter, r *http.Request) {
-  httpResponse := HTTPResponse { 
+  httpResponse := httpresponse.Response { 
     Code: 500, 
     MessageError: "an unexpected error found", 
   }
-  defer httpResponse.httpRespond( w ) 
+  defer httpResponse.Respond( w ) 
   url := r.URL.Path[8:] // "/lambda/" = 8 signes
   if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true {
     Logger.Info( "bad desired url :", url )
@@ -950,7 +906,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     Logger.Warning( "bad gateway for container as route :", routeName, "(", err, ")" )
     httpResponse.Code = 502
     httpResponse.MessageError = "bad gateway for container" 
-    httpResponse.httpRespond( w ) 
+    httpResponse.Respond( w ) 
     return
   }
   proxyReq.Header.Set( "Host", r.Host )
