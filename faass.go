@@ -98,8 +98,8 @@ func ConfImport( pathOption ...string ) bool {
   return true
 }
 
-func (c *Conf) GetParam( key string ) string {
-  if GLOBAL_CONF.Authorization != "" {
+func (c *Conf) GetParam( key string, forceMutex bool ) string {
+  if forceMutex == true && GLOBAL_CONF.Authorization != "" {
     GLOBAL_CONF_MUTEXT.RLock() 
     defer GLOBAL_CONF_MUTEXT.RUnlock() 
   }
@@ -164,7 +164,7 @@ type Route struct {
 
 func ( route *Route ) CreateFileEnv() ( fileEnvPath string, err error ) {
   fileEnvPath = filepath.Join(
-    GLOBAL_CONF.GetParam("TmpDir"),
+    GLOBAL_CONF.GetParam("TmpDir", true),
     route.Name+".env", 
   )
   if _,err := os.Stat( fileEnvPath ); err == nil {
@@ -348,13 +348,6 @@ func StartEnv() {
 
 // -----------------------------------------------
 
-type Container interface {
-  Create ( route Route ) ( state bool, err error )
-  Check ( route Route ) ( state bool, err error )
-  Remove ( route Route ) ( state bool, err error )
-}
-// -----------------------------------------------
-
 type Containers struct {}
 
 func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName string, scriptPath string, fileEnvPath string, imageContainer string, scriptCmd []string ) ( cmd *exec.Cmd, err error ) {
@@ -397,13 +390,16 @@ func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName s
 } 
 
 func ( container *Containers ) Run ( route *Route ) ( err error ) {
+  route.Mutex.Lock()
   if route.Id == "" {
     _, err := container.Create( route )
     if err != nil {
+      route.Mutex.Unlock()
       return err
-    }
+    } 
   }
   route.LastRequest = time.Now()
+  route.Mutex.Unlock()
   state, err := container.Check( route )
   if err != nil {
     return err
@@ -443,12 +439,11 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
   if route.Name == "" {
     return "failed", errors.New( "Name container has null value" )
   }
+  tmpDir := GLOBAL_CONF.GetParam("TmpDir", false)
   fileEnvPath := filepath.Join(
-    GLOBAL_CONF.GetParam("TmpDir"),
+    tmpDir,
     route.Name+".env", 
   )
-  route.Mutex.Lock()
-  defer route.Mutex.Unlock()
   fileEnv, err := os.Create( fileEnvPath )
   if err != nil {
     Logger.Error( "unable to create container file env : ", err )
@@ -459,7 +454,7 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
   }
   fileEnv.Close()
   pathContainerTmpDir := filepath.Join(
-    GLOBAL_CONF.GetParam("TmpDir"),
+    tmpDir,
     route.Name, 
   )
   if err := os.MkdirAll( pathContainerTmpDir, os.ModePerm ); err != nil {
@@ -467,18 +462,12 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
     return "failed", errors.New( "tmp dir for container failed" )
   }
   cmd := exec.Command(
-    "docker",
-    "container",
-    "create",
-    "--label",
-    "faass=true",
-    "--mount",
-    "type=bind,source="+pathContainerTmpDir+",target=/hostdir",
-    "--hostname",
-    route.Name,
-    "--env-file",
-    fileEnvPath,
-    route.Image,
+    "docker", "container", "create",
+      "--label", "faass=true",
+      "--mount", "type=bind,source="+pathContainerTmpDir+",target=/hostdir",
+      "--hostname", route.Name,
+      "--env-file", fileEnvPath,
+      route.Image,
   )
   o, err := cmd.CombinedOutput()
   cId := strings.TrimSuffix( string( o ), "\n" )
@@ -487,15 +476,11 @@ func ( container *Containers ) Create ( route *Route ) ( state string, err error
     return "undetermined", errors.New( cId )
   }
   route.Id = cId 
-  cmd = exec.Command(
-    "docker",
-    "inspect",
-    "-f",
-    "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-    cId,
-  )
-  o, err = cmd.Output()
-  cIP := strings.TrimSuffix( string( o ), "\n" )
+  cIP, err := container.GetInfos( route, "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" )
+  if err != nil {
+    Logger.Errorf( "container '%v' (cId %v) check failed", route.Name, route.Id, err )
+    return "undetermined", errors.New( cIP )
+  }
   route.IpAdress = cIP
   return cId, nil
 }
@@ -505,20 +490,9 @@ func ( container *Containers ) Check ( route *Route ) ( state string, err error 
   if route.Id == "" {
     return "undetermined", errors.New( "ID container has null string" )
   }
-  route.Mutex.RLock()
-  defer route.Mutex.RUnlock()
-  cmd := exec.Command(
-    "docker",
-    "container",
-    "inspect",
-    "-f",
-    "{{.State.Status}}",
-    route.Id,
-  )
-  o, err := cmd.CombinedOutput()
-  cState := strings.TrimSuffix( string( o ), "\n" ) 
+  cState, err := container.GetInfos( route, "{{.State.Status}}" )
   if err != nil {
-    Logger.Error( "container check ", err )
+    Logger.Errorf( "container '%s' check failed", route.Name, err )
     return "undetermined", errors.New( cState )
   }
   return cState, nil
@@ -528,13 +502,9 @@ func ( container *Containers ) Start ( route *Route ) ( state bool, err error ) 
   if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
-  route.Mutex.Lock()
-  defer route.Mutex.Unlock()
   cmd := exec.Command(
-    "docker",
-    "container",
-    "restart",
-    route.Id,
+    "docker", "container", "restart",
+      route.Id,
   )
   o, err := cmd.CombinedOutput()
   cId := strings.TrimSuffix( string( o ), "\n" ) 
@@ -548,13 +518,9 @@ func ( container *Containers ) Stop ( route *Route ) ( state bool, err error ) {
   if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
-  route.Mutex.Lock()
-  defer route.Mutex.Unlock()
   cmd := exec.Command(
-    "docker",
-    "container",
-    "stop",
-    route.Id,
+    "docker", "container", "stop",
+      route.Id,
   )
   o, err := cmd.CombinedOutput()
   cId := strings.TrimSuffix( string( o ), "\n" ) 
@@ -568,13 +534,9 @@ func ( container *Containers ) Remove ( route *Route ) ( state bool, err error )
    if route.Id == "" {
     return false, errors.New( "ID container has null string" )
   }
-  route.Mutex.Lock()
-  defer route.Mutex.Unlock()
   cmd := exec.Command(
-    "docker",
-    "container",
-    "rm",
-    route.Id,
+    "docker", "container", "rm",
+      route.Id,
   )
   o, err := cmd.CombinedOutput()
   cId := strings.TrimSuffix( string( o ), "\n" ) 
@@ -589,20 +551,20 @@ func ( container *Containers ) GetInfos ( route *Route, pattern string ) ( infos
    if route.Id == "" {
     return "", errors.New( "ID container has null string" )
   }
-  route.Mutex.RLock()
-  defer route.Mutex.RUnlock()
   cmd := exec.Command(
-    "docker",
-    "container",
-    "inspect",
-    "-f",
-    pattern,
-    route.Id,
+    "docker", "container", "inspect",
+      "-f", pattern,
+        route.Id,
   )
-  o, err := cmd.Output()
+  o, err := cmd.CombinedOutput()
   cInfos := strings.TrimSuffix( string( o ), "\n" ) 
   if err != nil {
-    return "", errors.New( route.Id )
+    return "", errors.New( 
+      fmt.Sprintf( 
+        "failed to get infos for route %v", 
+        route.Id, 
+      ), 
+    ) 
   }
   return cInfos, nil
 }
@@ -876,10 +838,20 @@ func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.Res
     route.ScriptCmd, 
   ) 
   GLOBAL_CONF_MUTEXT.RUnlock() 
-  stdin, err := cmd.StdinPipe() 
-  stderr, err := cmd.StderrPipe() 
   if err != nil {
-    Logger.Warningf( "unable to write on container's stdin '%s' : %s", routeName, err )
+    Logger.Warningf( "unable to get command for '%s' : %s", routeName, err )
+    httpResponse.MessageError = "unable to run request in container (internal error)" 
+    return 
+  }
+  stdin, err := cmd.StdinPipe()
+  if err != nil {
+    Logger.Warningf( "unable to get container's stdin '%s' : %s", routeName, err )
+    httpResponse.MessageError = "unable to run request in container (internal error)" 
+    return 
+  }
+  stderr, err := cmd.StderrPipe()
+  if err != nil {
+    Logger.Warningf( "unable to get on container's stderr '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (internal error)" 
     return 
   }
@@ -942,7 +914,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     Code: 500, 
     MessageError: "an unexpected error found", 
   }
-  // defer httpResponse.httpRespond( w ) 
+  defer httpResponse.httpRespond( w ) 
   url := r.URL.Path[8:] // "/lambda/" = 8 signes
   if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true {
     Logger.Info( "bad desired url :", url )
@@ -1133,7 +1105,7 @@ func main() {
 
   muxer := http.NewServeMux()
 
-  UIPath := GLOBAL_CONF.GetParam( "UI" )
+  UIPath := GLOBAL_CONF.GetParam( "UI", true )
   if UIPath != "" {
     Logger.Info( "UI path found :", UIPath )
     muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
