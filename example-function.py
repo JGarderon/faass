@@ -20,7 +20,7 @@ sys.stdout.buffer.write(
 ) 
 
 # payload_body = str( json.dumps( dict( os.environ ) ) ).encode( 'utf-8' )
-payload_body = str( json.dumps( sys.stdin.read() ) ).encode( 'utf-8' )
+payload_body = str( sys.stdin.read() ).encode( 'utf-8' )
 
 # print("payload_body", sys.stdin.readlines(), file=sys.stderr) 
 

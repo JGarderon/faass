@@ -185,23 +185,33 @@ func ( route *Route ) CreateFileEnv() ( fileEnvPath string, err error ) {
 // -----------------------------------------------
 
 type logger struct {
-  Mutext    sync.Mutex
-  Debug     func(v ...any)
-  Info      func(v ...any)
-  Warning   func(v ...any)
-  Error     func(v ...any)
-  Panic     func(v ...any)
+  Debug       func(v ...any)
+  Debugf      func(f string, v ...any)
+  Info        func(v ...any)
+  Infof       func(f string, v ...any)
+  Warning     func(v ...any)
+  Warningf    func(f string, v ...any)
+  Error       func(v ...any)
+  Errorf      func(f string, v ...any)
+  Panic       func(v ...any)
+  Panicf      func(f string, v ...any)
 }
 
 var Logger *logger
 
 func InitLogger() {
+
   Logger = &logger { 
     Debug     : log.New( os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Debugf     : log.New( os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
     Info      : log.New( os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Infof      : log.New( os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
     Warning   : log.New( os.Stderr, "WARNING: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Warningf   : log.New( os.Stderr, "WARNING: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
     Error     : log.New( os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Errorf     : log.New( os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
     Panic     : log.New( os.Stderr, "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile ).Println, 
+    Panicf     : log.New( os.Stderr, "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile ).Printf, 
   }
 }
 
@@ -848,8 +858,7 @@ type FunctionResponseHeaders struct {
 func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.ResponseWriter, r *http.Request ) {
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
-    // time.Duration( route.Timeout ) * time.Millisecond, 
-    time.Duration( 10000 ) * time.Millisecond, 
+    time.Duration( route.Timeout ) * time.Millisecond, 
   ) 
   defer cancel() 
   fileEnvPath, err := route.CreateFileEnv() 
@@ -857,9 +866,10 @@ func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.Res
     httpResponse.MessageError = "unable to create environment file"
     return 
   }
+  routeName := route.Name 
   cmd, err := GLOBAL_CONF.Containers.ExecuteRequest( 
     ctx, 
-    route.Name, 
+    routeName, 
     route.ScriptPath, 
     fileEnvPath, 
     route.Image, 
@@ -869,7 +879,7 @@ func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.Res
   stdin, err := cmd.StdinPipe() 
   stderr, err := cmd.StderrPipe() 
   if err != nil {
-    Logger.Warning( "unable to write on container's stdin :", err )
+    Logger.Warningf( "unable to write on container's stdin '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (internal error)" 
     return 
   }
@@ -880,45 +890,48 @@ func lambdaHandlerFunction( route *Route, httpResponse *HTTPResponse, w http.Res
   go func() {
     errMessage, _ := io.ReadAll(stderr)
     if len( errMessage ) > 0 {
-      Logger.Debug( "error message from container :", string( errMessage ) ) 
+      Logger.Debugf( "error message from container '%s' : %s", routeName, string( errMessage ) ) 
     }
   }()
-  out, err := cmd.Output() // pas de gestion des retours d'erreur (stderr) 
-  fmt.Println( "out", out )
+  Logger.Warningf( "run container for route '%s'", routeName )
+  out, err := cmd.Output() 
   step := uint32( 0 )  
   if err != nil { 
-    Logger.Warning( "unable to run request in container :", err )
+    Logger.Warningf( "unable to run request in container '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (time out or failed)" 
     return 
   }
   httpResponse.MessageError = "unable to run request in container (incorrect response)" 
   if len(out) < 4 {
-    Logger.Warning( "incorrect size of headers'length from container" )
+    Logger.Warning( "incorrect size of headers'length from container '%s'", routeName )
     return 
   }
   sizeHeaders := binary.BigEndian.Uint32( out[0:4] ) 
-  fmt.Println( "sizeHeaders", sizeHeaders )
   if sizeHeaders < 1 {
-    Logger.Warning( "headers of response null from container" )
+    Logger.Warning( "headers of response null from container '%s'", routeName )
     return 
   }
   step += 4
   var responseHeaders FunctionResponseHeaders
   err = json.Unmarshal( out[step:step+sizeHeaders], &responseHeaders )
   if err != nil {
-    Logger.Warning( "incorrect headers payload of response from container" )
+    Logger.Warning( "incorrect headers payload of response from container '%s'", routeName )
     return 
   }
   step += sizeHeaders 
   httpResponse.Code = responseHeaders.Code
   header := w.Header()
-  header.Add( "Content-type", "application/json" )
+  contentTypeSend := false 
   for key, value := range responseHeaders.Headers {
     if strings.ToLower( key ) == "content-type" {
       header.Add( "Content-type", value )
+      contentTypeSend = true 
     } else {
       header.Add( "x-faas-"+key, value ) 
     }
+  } 
+  if contentTypeSend == false {
+    header.Add( "Content-type", "application/json" )
   } 
   w.Write( out[step+4:] ) 
   return 
