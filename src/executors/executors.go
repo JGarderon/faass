@@ -1,19 +1,22 @@
 package executors
 
 import(
-	"context"
-	"os"
-	"os/exec"
-	"errors"
-	"time"
-	"path/filepath"
-	"strings"
-	"fmt"
-  	// -----------
-	"itinerary"
+  "context"
+  "os"
+  "os/exec"
+  "errors"
+  "time"
+  "path/filepath"
+  "strings"
+  "fmt"
+    // -----------
+  "itinerary"
+  "logger"
 )
 
-type Containers struct {}
+type Containers struct {
+  Logger *logger.Logger
+}
 
 func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName string, scriptPath string, fileEnvPath string, imageContainer string, scriptCmd []string ) ( cmd *exec.Cmd, err error ) {
   if routeName == "" {
@@ -102,7 +105,7 @@ func ( container *Containers ) Create ( tmpDir string, route *itinerary.Route ) 
   )
   fileEnv, err := os.Create( fileEnvPath )
   if err != nil {
-    // Logger.Error( "unable to create container file env : ", err )
+    container.Logger.Error( "unable to create container file env : ", err )
     return "failed", errors.New( "env file for container failed" )
   }
   for key, value := range route.Environment {
@@ -114,7 +117,7 @@ func ( container *Containers ) Create ( tmpDir string, route *itinerary.Route ) 
     route.Name, 
   )
   if err := os.MkdirAll( pathContainerTmpDir, os.ModePerm ); err != nil {
-    // Logger.Error( "unable to create tmp dir for container : ", err )
+    container.Logger.Error( "unable to create tmp dir for container : ", err )
     return "failed", errors.New( "tmp dir for container failed" )
   }
   cmd := exec.Command(
@@ -128,13 +131,13 @@ func ( container *Containers ) Create ( tmpDir string, route *itinerary.Route ) 
   o, err := cmd.CombinedOutput()
   cId := strings.TrimSuffix( string( o ), "\n" )
   if err != nil {
-    // Logger.Error( "container create in error : ", err )
+    container.Logger.Error( "container create in error : ", err )
     return "undetermined", errors.New( cId )
   }
   route.Id = cId 
   cIP, err := container.GetInfos( route, "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" )
   if err != nil {
-    // Logger.Errorf( "container '%v' (cId %v) check failed", route.Name, route.Id, err )
+    container.Logger.Errorf( "container '%v' (cId %v) check failed", route.Name, route.Id, err )
     return "undetermined", errors.New( cIP )
   }
   route.IpAdress = cIP
@@ -148,7 +151,7 @@ func ( container *Containers ) Check ( route *itinerary.Route ) ( state string, 
   }
   cState, err := container.GetInfos( route, "{{.State.Status}}" )
   if err != nil {
-    // Logger.Errorf( "container '%s' check failed", route.Name, err )
+    container.Logger.Errorf( "container '%s' check failed", route.Name, err )
     return "undetermined", errors.New( cState )
   }
   return cState, nil

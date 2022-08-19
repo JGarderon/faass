@@ -5,7 +5,8 @@ import (
   "net/http"
   "encoding/json"
   "fmt"
-  // "logger"
+  // -----------
+  "logger"
 )
 
 type Response struct {
@@ -15,14 +16,14 @@ type Response struct {
   IOFile io.ReadCloser
 }
 
-func ( httpR *Response ) Respond( w http.ResponseWriter ) bool { 
+func ( httpR *Response ) Respond( logger *logger.Logger, w http.ResponseWriter ) bool { 
   if httpR.Code < 300 {
     if httpR.Payload != nil {
       HTTPResponse, err := json.Marshal( httpR.Payload ) 
       if err != nil { 
         w.WriteHeader( 500 ) 
         w.Header().Set( "Content-type", "application/problem+json" )
-        // Logger.Error( "API export conf (Marshal) :", err ) 
+        logger.Error( "API export conf (Marshal) :", err ) 
         httpR.Code = 500
         return false
       } 

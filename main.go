@@ -160,6 +160,8 @@ func StartEnv() {
       os.Exit( ExitConfCreateKo )
     }
   }
+  GLOBAL_CONF.Logger = &Logger
+  GLOBAL_CONF.Containers.Logger = &Logger
   if !GLOBAL_CONF.ConfImport( GLOBAL_CONF_PATH ) {
     Logger.Panic( "Unable to load configuration" )
     os.Exit( ExitConfLoadKo )
@@ -193,7 +195,7 @@ func ApiHandler(w http.ResponseWriter, r *http.Request) {
       Code: 401, 
       MessageError: "you must be authentified", 
     }
-    HTTPResponse.Respond( w ) 
+    HTTPResponse.Respond( &Logger, w ) 
     return 
   } 
   pathExtract := r.URL.Path[5:] // "/api/" = 5 signes 
@@ -220,7 +222,7 @@ func ApiHandlerRoute(typeId string, w http.ResponseWriter, r *http.Request) {
     Code: 500,
     MessageError: "an unexpected error has occurred", 
   } 
-  defer HTTPResponse.Respond( w ) 
+  defer HTTPResponse.Respond( &Logger, w ) 
   switch r.Method  {
   case "GET":
     GLOBAL_CONF_MUTEXT.RLock() 
@@ -315,7 +317,7 @@ func ApiHandlerConf(_ string, w http.ResponseWriter, r *http.Request) {
     Code: 500,
     MessageError: "an unexpected error has occurred", 
   }
-  defer HTTPResponse.Respond( w ) 
+  defer HTTPResponse.Respond( &Logger, w ) 
   switch r.Method  {
   case "GET": 
     HTTPResponse.Code = 200 
@@ -488,7 +490,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     Code: 500, 
     MessageError: "an unexpected error found", 
   }
-  defer httpResponse.Respond( w ) 
+  defer httpResponse.Respond( &Logger, w ) 
   url := r.URL.Path[8:] // "/lambda/" = 8 signes
   if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true {
     Logger.Info( "bad desired url :", url )
@@ -568,7 +570,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     Logger.Warning( "bad gateway for container as route :", routeName, "(", err, ")" )
     httpResponse.Code = 502
     httpResponse.MessageError = "bad gateway for container" 
-    httpResponse.Respond( w ) 
+    httpResponse.Respond( &Logger, w ) 
     return
   }
   proxyReq.Header.Set( "Host", r.Host )

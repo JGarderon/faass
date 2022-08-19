@@ -9,9 +9,11 @@ import(
   // -----------
   "itinerary"
   "executors"
+  "logger"
 )
 
 type Conf struct {
+  Logger *logger.Logger
   Containers executors.Containers
   Domain string `json:"domain"`
   Authorization string `json:"authorization"`
@@ -38,11 +40,11 @@ func (c *Conf) ConfImport( pathRoot string ) bool {
   json.Unmarshal( byteValue, c )
   if c.DelayCleaningContainers < 5 {
     c.DelayCleaningContainers = 5
-    // Logger.Warning( "new value for delay cleaning containers : min 5 (seconds)" ) 
+    c.Logger.Warning( "new value for delay cleaning containers : min 5 (seconds)" ) 
   }
   if c.DelayCleaningContainers > 60 {
     c.DelayCleaningContainers = 60 
-    // Logger.Warning( "new value for delay cleaning containers : max 60 (seconds)" ) 
+    c.Logger.Warning( "new value for delay cleaning containers : max 60 (seconds)" ) 
   }
   return true
 }
