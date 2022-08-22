@@ -8,6 +8,7 @@ import(
   "io/ioutil"
   "encoding/json"
   "strconv"
+  "net"
   // -----------
   "itinerary"
   "executors"
@@ -19,6 +20,7 @@ type Conf struct {
   Containers executors.Containers `json:"-"`
   Domain string `json:"domain"`
   Authorization string `json:"authorization"`
+  IncomingAdress string `json:"adress"`
   IncomingPort int `json:"listen"`
   DelayCleaningContainers int `json:"delay"`
   UI string `json:"ui"`
@@ -45,6 +47,10 @@ func Import( pathRoot string, c *Conf ) error {
 
 func ( c *Conf ) Check() ( message string, state bool ) {
   state = true
+  if net.ParseIP( c.IncomingAdress ) == nil {
+    message = "incomming adress is not an ip"
+    state = false 
+  }
   if c.DelayCleaningContainers < 5 {
     c.DelayCleaningContainers = 5
     message = "new value for delay cleaning containers : min 5 (seconds)"
@@ -71,6 +77,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   )
   c.Domain = "https://localhost"
   c.Authorization = "Basic YWRtaW46YXplcnR5" // admin:azerty
+  c.IncomingAdress = "0.0.0.0"
   c.IncomingPort = 9090
   c.DelayCleaningContainers = 0
   c.UI = uiTmpDir

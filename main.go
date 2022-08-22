@@ -80,7 +80,7 @@ func main() {
   } 
 
   httpServer := &http.Server{
-    Addr: ":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ),
+    Addr: GLOBAL_CONF.IncomingAdress+":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ),
     Handler:     muxer,
   }
 
