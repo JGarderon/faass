@@ -45,6 +45,7 @@ const (
   ExitUndefined           // toujours '1'
   ExitConfCreateKo
   ExitConfLoadKo
+  ExitConfCheckKo
   ExitConfRegexUrlKo
   ExitConfShuttingServerFailed
 )

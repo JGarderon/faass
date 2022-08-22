@@ -6,11 +6,9 @@ import (
   "regexp"
   "errors"
   "flag"
-  "strconv"
   "time"
   "context"
   // -----------
-  "itinerary"
   "configuration"
 )
 
@@ -27,7 +25,7 @@ func CreateRegexUrl() {
 func GetRootPath() (rootPath string, err error) {
   ex, err := os.Executable()
   if err != nil {
-    Logger.Warning( "unable to get current path of executable : ", err )
+    Logger.Warningf( "unable to get current path of executable : %s", err )
     return "", errors.New( "unable to get current path of executable" )
   }
   rootPath = filepath.Dir( ex )
@@ -37,58 +35,24 @@ func GetRootPath() (rootPath string, err error) {
 func CreateEnv() bool {
   rootPath, err := GetRootPath()
   if err != nil {
+    Logger.Warningf( "unable to get root path : %v", err )
     return false
   }
-  uiTmpDir := filepath.Join(
-    rootPath,
-    "./content",
-  )
-  pathTmpDir := filepath.Join(
-    rootPath,
-    "./tmp",
-  )
-  newMapRoutes := make( map[string]*itinerary.Route ) 
-  newMapEnvironmentRoute := make( map[string]string ) 
-  newMapEnvironmentRoute["faass-example"] = "true" 
-  newMapRoutes["example-service"] = &itinerary.Route {
-      Name: "exampleService",
-      IsService: true,
-      Authorization: "Basic YWRtaW46YXplcnR5", 
-      Environment: newMapEnvironmentRoute, 
-      Image: "nginx", 
-      Timeout : 250, 
-      Retry: 3, 
-      Delay: 8, 
-      Port: 80, 
-  } 
-  newMapRoutes["example-function"] = &itinerary.Route {
-      Name: "exampleFunction",
-      IsService: false,
-      ScriptPath: filepath.Join( pathTmpDir, "./example-function.py" ), 
-      ScriptCmd: []string{ "python3", "/function" }, 
-      Environment: newMapEnvironmentRoute, 
-      Image: "python3", 
-      Timeout : 500, 
-  } 
-  newConf := configuration.Conf {
-    Domain: "https://localhost",
-    Authorization: "Basic YWRtaW46YXplcnR5", // admin:azerty 
-    IncomingPort: 9090,
-    UI: uiTmpDir, 
-    TmpDir: pathTmpDir,
-    Prefix: "lambda",
-    Routes: newMapRoutes, 
-  }
-  if !newConf.Export( GLOBAL_CONF_PATH ) {
+  newConf := configuration.Conf{} 
+  if !newConf.PopulateDefaults(rootPath) {
     Logger.Error( "Unable to create environment : conf" )
     return false
   }
-  if err := os.Mkdir( uiTmpDir, os.ModePerm ); err != nil {
-    Logger.Warning( "Unable to create environment : content dir (", err, "); pass" )
+  if !newConf.Export( GLOBAL_CONF_PATH ) {
+    Logger.Error( "Unable to export environment : conf" )
     return false
   }
-  if err := os.Mkdir( pathTmpDir, os.ModePerm ); err != nil {
-    Logger.Warning( "Unable to create environment : tmp dir (", err, "); pass" )
+  if err := os.Mkdir( newConf.UI, os.ModePerm ); err != nil {
+    Logger.Warningf( "Unable to create environment for UI contents \"%v\" : %v ; pass", newConf.UI, err )
+    return false
+  }
+  if err := os.Mkdir( newConf.TmpDir, os.ModePerm ); err != nil {
+    Logger.Warningf( "Unable to create environment for temporary contents \"%v\" : %v ; pass", newConf.TmpDir, err )
     return false
   }
   return true
@@ -112,31 +76,17 @@ func StartEnv() {
       os.Exit( ExitConfCreateKo )
     }
   }
+  err := configuration.Import( GLOBAL_CONF_PATH, &GLOBAL_CONF )  
+  if err != nil {
+    Logger.Panicf( "unable to load configuration with error : %v", err )
+    os.Exit( ExitConfLoadKo )
+  } 
+  if message, state := GLOBAL_CONF.Check() ; !state {
+    Logger.Panicf( "check of conf failed : %v", message ) 
+    os.Exit( ExitConfCheckKo )
+  }
   GLOBAL_CONF.Logger = &Logger
   GLOBAL_CONF.Containers.Logger = &Logger
-  if !GLOBAL_CONF.ConfImport( GLOBAL_CONF_PATH ) {
-    Logger.Panic( "Unable to load configuration" )
-    os.Exit( ExitConfLoadKo )
-  }
-  if GLOBAL_CONF.IncomingPort < 1 || GLOBAL_CONF.IncomingPort > 65535 {
-    Logger.Panic(
-      "Bad configuration : incorrect port '"+strconv.Itoa( GLOBAL_CONF.IncomingPort )+"'", 
-    )
-    os.Exit( ExitConfLoadKo )
-  }
-  rootPath, err := GetRootPath()
-  if err != nil {
-    Logger.Panic( "Unable to root path of executable" )
-    os.Exit( ExitConfLoadKo )
-  }
-  GLOBAL_CONF.UI = filepath.Join(
-    rootPath,
-    "./content",
-  )
-  GLOBAL_CONF.TmpDir = filepath.Join(
-    rootPath,
-    "./tmp",
-  )
 }
 
 // -----------------------------------------------
