@@ -22,6 +22,7 @@ import (
   // -----------
   "logger"
   "configuration"
+  "api/functions"
 )
 
 // -----------------------------------------------
@@ -75,6 +76,16 @@ func main() {
   if GLOBAL_CONF.Authorization != "" {
     Logger.Info( "Authorization secret found ; API active" )
     muxer.HandleFunc( "/api/", ApiHandler )
+
+    muxer.Handle( 
+      "/api/functions/", 
+        functions.HandlerApi {
+        Logger: &Logger, 
+        ConfMutext: &GLOBAL_CONF_MUTEXT, 
+        Conf: &GLOBAL_CONF, 
+      }, 
+    )
+
   } else { 
     Logger.Info( "Authorization secret not found ; API inactive" )
   } 
