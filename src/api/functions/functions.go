@@ -29,7 +29,7 @@ func ( handlerApi HandlerApi ) ServeHTTP ( w http.ResponseWriter, r *http.Reques
   handlerApi.ConfMutext.RLock()
   auth := api.VerifyAuthorization( handlerApi.Conf, r )
   handlerApi.ConfMutext.RUnlock()
-  if auth {
+  if auth != true {
     httpResponse.Code = http.StatusUnauthorized
     httpResponse.MessageError = "you must be authentified"
     return
@@ -73,6 +73,7 @@ func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *ht
     httpResponse.MessageError = "the request's body is an invalid"
     return
   }
+  newRoute.IsService = false; 
   if route != nil {
     route.Mutex.Lock()
     defer route.Mutex.Unlock()

@@ -5,7 +5,7 @@ import (
   "io/ioutil"
   "encoding/json"
   "sync"
-  // "fmt"
+  "fmt"
   // -----------
   "api"
   "configuration"
@@ -28,11 +28,13 @@ func ( handlerApi HandlerApi ) ServeHTTP ( w http.ResponseWriter, r *http.Reques
   handlerApi.ConfMutext.RLock()
   auth := api.VerifyAuthorization( handlerApi.Conf, r )
   handlerApi.ConfMutext.RUnlock()
-  if auth {
+  if auth != true {
     httpResponse.Code = http.StatusUnauthorized
     httpResponse.MessageError = "you must be authentified"
     return
   }
+  fmt.Println( r.Method ) 
+  fmt.Println( http.MethodPatch ) 
   switch r.Method  {
     case http.MethodGet:
       handlerApi.Get( &httpResponse, r )

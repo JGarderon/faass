@@ -79,7 +79,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   c.Authorization = "Basic YWRtaW46YXplcnR5" // admin:azerty
   c.IncomingAdress = "0.0.0.0"
   c.IncomingPort = 9090
-  c.DelayCleaningContainers = 0
+  c.DelayCleaningContainers = 5
   c.UI = uiTmpDir
   c.TmpDir = pathTmpDir
   c.Prefix = "lambda"
@@ -103,7 +103,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
       ScriptPath: filepath.Join( pathTmpDir, "./example-function.py" ),
       ScriptCmd: []string{ "python3", "/function" },
       Environment: newMapEnvironmentRoute,
-      Image: "python3",
+      Image: "python:3",
       Timeout : 500,
   }
   c.Routes = newMapRoutes

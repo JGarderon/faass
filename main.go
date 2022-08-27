@@ -78,7 +78,7 @@ func main() {
   if GLOBAL_CONF.Authorization != "" {
     Logger.Info( "Authorization secret found ; API active" )
     muxer.Handle( 
-      "/api/configuration/", 
+      "/api/configuration", 
         ApiConfiguration.HandlerApi {
         Logger: &Logger, 
         ConfMutext: &GLOBAL_CONF_MUTEXT, 

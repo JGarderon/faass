@@ -2,7 +2,6 @@ package main
 
 import(
   "encoding/json"
-  // "io/ioutil"
   "os"
   "strings"
   "time"
@@ -24,6 +23,22 @@ type FunctionResponseHeaders struct {
   Code int `json:"code"`
   Headers map[string]string `json:"headers"`
 } 
+
+// -----------------------------------------------
+
+func lambdaHandlerAuthorization( c *itinerary.Route, r *http.Request ) bool {
+  if c.Authorization == "" { 
+    if r.Header.Get( "Authorization" ) != "" {
+      return false 
+    }
+    return true
+  } else { 
+    if r.Header.Get( "Authorization" ) == c.Authorization {
+      return true 
+    }
+    return false 
+  }
+}
 
 // -----------------------------------------------
 
@@ -152,7 +167,7 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     return
   } 
   Logger.Info( "known desired url :", routeName )
-  if r.Header.Get( "Authorization" ) != route.Authorization  { 
+  if lambdaHandlerAuthorization( route, r ) != true { 
     httpResponse.Code = 401
     httpResponse.MessageError = "you must be authentified" 
     Logger.Info( "known desired url and unauthentified request :", routeName )

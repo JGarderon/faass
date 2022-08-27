@@ -7,5 +7,15 @@ import (
 )
 
 func VerifyAuthorization( c *configuration.Conf, r *http.Request ) bool {
-  return ( r.Header.Get( "Authorization" ) == c.Authorization ) 
+  if c.Authorization == "" { 
+    if r.Header.Get( "Authorization" ) != "" {
+      return false 
+    }
+    return true
+  } else { 
+    if r.Header.Get( "Authorization" ) == c.Authorization {
+      return true 
+    }
+    return false 
+  }
 }
