@@ -38,6 +38,9 @@ func ( handlerApi HandlerApi ) ServeHTTP ( w http.ResponseWriter, r *http.Reques
       handlerApi.Get( &httpResponse, r )
     case http.MethodPatch:
       handlerApi.Patch( &httpResponse, r )
+    default:
+      httpResponse.Code = http.StatusMethodNotAllowed
+      httpResponse.MessageError = "HTTP verb incorrect"
    }
 }
 
