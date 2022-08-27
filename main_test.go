@@ -1,5 +1,11 @@
 package main
 
 import (
-    // "testing"
+  "testing"
+  // -----------
 )
+
+// -----------------------------------------------
+
+func TestVoid( t *testing.T ) {
+}
