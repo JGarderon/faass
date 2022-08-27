@@ -22,7 +22,8 @@ import (
   // -----------
   "logger"
   "configuration"
-  "api/functions"
+  ApiConfiguration "api/configuration"
+  ApiFunction "api/functions"
 )
 
 // -----------------------------------------------
@@ -78,8 +79,17 @@ func main() {
     muxer.HandleFunc( "/api/", ApiHandler )
 
     muxer.Handle( 
+      "/api/configuration/", 
+        ApiConfiguration.HandlerApi {
+        Logger: &Logger, 
+        ConfMutext: &GLOBAL_CONF_MUTEXT, 
+        Conf: &GLOBAL_CONF, 
+      }, 
+    )
+
+    muxer.Handle( 
       "/api/functions/", 
-        functions.HandlerApi {
+        ApiFunction.HandlerApi {
         Logger: &Logger, 
         ConfMutext: &GLOBAL_CONF_MUTEXT, 
         Conf: &GLOBAL_CONF, 

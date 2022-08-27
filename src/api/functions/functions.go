@@ -48,6 +48,8 @@ func ( handlerApi HandlerApi ) ServeHTTP ( w http.ResponseWriter, r *http.Reques
 }
 
 func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *http.Request ) {
+  handlerApi.ConfMutext.Lock()
+  defer handlerApi.ConfMutext.Unlock()
   routeId := r.URL.Path[15:] // /api/functions/
   route, _ := handlerApi.Conf.GetRoute( routeId )
   if route != nil && route.IsService == true {
