@@ -108,6 +108,7 @@ func main() {
     syscall.SIGHUP,
     syscall.SIGINT,
     syscall.SIGQUIT,
+    syscall.SIGTERM,
   )
   <-signalChan
   Logger.Info("interrupt received ; shutting down")

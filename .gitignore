@@ -24,6 +24,7 @@ go.sum
 faass
 conf.json
 content/
+cache/
 server.crt
 server.key
 
