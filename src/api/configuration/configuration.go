@@ -5,7 +5,6 @@ import (
   "io/ioutil"
   "encoding/json"
   "sync"
-  "fmt"
   // -----------
   "api"
   "configuration"
@@ -33,8 +32,6 @@ func ( handlerApi HandlerApi ) ServeHTTP ( w http.ResponseWriter, r *http.Reques
     httpResponse.MessageError = "you must be authentified"
     return
   }
-  fmt.Println( r.Method ) 
-  fmt.Println( http.MethodPatch ) 
   switch r.Method  {
     case http.MethodGet:
       handlerApi.Get( &httpResponse, r )

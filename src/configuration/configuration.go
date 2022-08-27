@@ -15,6 +15,25 @@ import(
   "logger"
 )
 
+var ConfDirTmp string                   = "./tmp"
+var ConfDirContent string               = "./content"
+
+var ConfPrefix string                   = "lambda"
+
+const (
+  ConfIncomingPortDefault               = 9090
+  ConfDelayCleaningContainersDefault    = 60
+  ConfDelayCleaningContainersMin        = 5
+  ConfDelayCleaningContainersMax        = 3600
+
+  FunctionTimeoutDefault                = 1000
+
+  ServiceTimeoutDefault                 = 250
+  ServiceRetryDefault                   = 3
+  ServiceDelayDefault                   = 8
+  ServicePortDefault                    = 80
+)
+
 type Conf struct {
   Logger *logger.Logger `json:"-"`
   Containers executors.Containers `json:"-"`
@@ -51,12 +70,12 @@ func ( c *Conf ) Check() ( message string, state bool ) {
     message = "incomming adress is not an ip"
     state = false 
   }
-  if c.DelayCleaningContainers < 5 {
-    c.DelayCleaningContainers = 5
+  if c.DelayCleaningContainers < ConfDelayCleaningContainersMin {
+    c.DelayCleaningContainers = ConfDelayCleaningContainersMin
     message = "new value for delay cleaning containers : min 5 (seconds)"
   }
-  if c.DelayCleaningContainers > 60 {
-    c.DelayCleaningContainers = 60
+  if c.DelayCleaningContainers > ConfDelayCleaningContainersMax {
+    c.DelayCleaningContainers = ConfDelayCleaningContainersMax
     message = "new value for delay cleaning containers : max 60 (seconds)"
   }
   if c.IncomingPort < 1 || c.IncomingPort > 65535 {
@@ -69,20 +88,20 @@ func ( c *Conf ) Check() ( message string, state bool ) {
 func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   uiTmpDir := filepath.Join(
     rootPath,
-    "./content",
+    ConfDirContent,
   )
   pathTmpDir := filepath.Join(
     rootPath,
-    "./tmp",
+    ConfDirTmp,
   )
   c.Domain = "https://localhost"
   c.Authorization = "Basic YWRtaW46YXplcnR5" // admin:azerty
   c.IncomingAdress = "0.0.0.0"
-  c.IncomingPort = 9090
-  c.DelayCleaningContainers = 5
+  c.IncomingPort = ConfIncomingPortDefault
+  c.DelayCleaningContainers = ConfDelayCleaningContainersDefault
   c.UI = uiTmpDir
   c.TmpDir = pathTmpDir
-  c.Prefix = "lambda"
+  c.Prefix = ConfPrefix
   newMapRoutes := make( map[string]*itinerary.Route )
   newMapEnvironmentRoute := make( map[string]string )
   newMapEnvironmentRoute["faass-example"] = "true"
@@ -92,10 +111,10 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
       Authorization: "Basic YWRtaW46YXplcnR5",
       Environment: newMapEnvironmentRoute,
       Image: "nginx",
-      Timeout : 250,
-      Retry: 3,
-      Delay: 8,
-      Port: 80,
+      Timeout : ServiceTimeoutDefault,
+      Retry: ServiceRetryDefault,
+      Delay: ServiceDelayDefault,
+      Port: ServicePortDefault,
   }
   newMapRoutes["example-function"] = &itinerary.Route {
       Name: "exampleFunction",
@@ -104,7 +123,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
       ScriptCmd: []string{ "python3", "/function" },
       Environment: newMapEnvironmentRoute,
       Image: "python:3",
-      Timeout : 500,
+      Timeout : FunctionTimeoutDefault,
   }
   c.Routes = newMapRoutes
   return true

@@ -9,7 +9,7 @@ import(
   "path/filepath"
   "strings"
   "fmt"
-    // -----------
+  // -----------
   "itinerary"
   "logger"
 )
@@ -120,14 +120,16 @@ func ( container *Containers ) Create ( tmpDir string, route *itinerary.Route ) 
     container.Logger.Error( "unable to create tmp dir for container : ", err )
     return "failed", errors.New( "tmp dir for container failed" )
   }
-  cmd := exec.Command(
-    "docker", "container", "create",
+  args := []string{ 
+    "container", "create",
       "--label", "faass=true",
       "--mount", "type=bind,source="+pathContainerTmpDir+",target=/hostdir",
       "--hostname", route.Name,
       "--env-file", fileEnvPath,
       route.Image,
-  )
+  }   
+  args = append(args, route.ScriptCmd[:]...)
+  cmd := exec.Command( "docker", args... )
   o, err := cmd.CombinedOutput()
   cId := strings.TrimSuffix( string( o ), "\n" )
   if err != nil {
