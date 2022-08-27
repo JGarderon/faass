@@ -49,14 +49,14 @@ func ( handlerApi *HandlerApi ) Patch( httpResponse *httpresponse.Response, r *h
   defer handlerApi.ConfMutext.Unlock()
   defer handlerApi.Logger.Infof( "Patch conf asked" )
   if contentType := r.Header.Get("Content-type"); contentType != "application/json" {
-    httpResponse.Code = 400
+    httpResponse.Code = http.StatusBadRequest
     httpResponse.MessageError = "you must have 'application/json' content-type header"
     return
   }
   body, err := ioutil.ReadAll( r.Body )
   if err != nil {
     defer handlerApi.Logger.Warningf( "Patch conf asked ; can't read body : %v", err )
-    httpResponse.Code = 500
+    httpResponse.Code = http.StatusInternalServerError
     httpResponse.MessageError = "the request's body is an invalid"
     return
   }
@@ -64,7 +64,7 @@ func ( handlerApi *HandlerApi ) Patch( httpResponse *httpresponse.Response, r *h
   err = json.Unmarshal( body, &f )
   if err != nil {
     defer handlerApi.Logger.Warningf( "Patch conf asked ; can't parse body : %v", err )
-    httpResponse.Code = 400
+    httpResponse.Code = http.StatusBadRequest
     httpResponse.MessageError = "the request's body is an invalid"
     return
   }
@@ -90,12 +90,12 @@ func ( handlerApi *HandlerApi ) Patch( httpResponse *httpresponse.Response, r *h
         return
       }
     default:
-      httpResponse.Code = 501
+      httpResponse.Code = http.StatusNotImplemented
       httpResponse.MessageError = "at least one key is invalid"
       return
     }
   }
-  httpResponse.Code = 202
+  httpResponse.Code = http.StatusAccepted
 }
 
 func ( handlerApi *HandlerApi ) Get( httpResponse *httpresponse.Response, r *http.Request ) {

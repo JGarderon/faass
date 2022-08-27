@@ -61,7 +61,7 @@ func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *ht
   body, err := ioutil.ReadAll( r.Body )
   if err != nil {
     defer handlerApi.Logger.Warningf( "Post function '%v' ; can't read body : %v", routeId, err )
-    httpResponse.Code = 500
+    httpResponse.Code = http.StatusInternalServerError
     httpResponse.MessageError = "the request's body is an invalid"
     return
   }
@@ -69,7 +69,7 @@ func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *ht
   err = json.Unmarshal( body, &newRoute )
   if err != nil {
     defer handlerApi.Logger.Warningf( "Post function '%v' ; can't parse body : %v", routeId, err )
-    httpResponse.Code = 400
+    httpResponse.Code = http.StatusBadRequest
     httpResponse.MessageError = "the request's body is an invalid"
     return
   }

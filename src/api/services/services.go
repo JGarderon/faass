@@ -63,7 +63,7 @@ func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *ht
   body, err := ioutil.ReadAll( r.Body )
   if err != nil { 
     defer handlerApi.Logger.Warningf( "Post service '%v' ; can't read body : %v", routeId, err )
-    httpResponse.Code = 500 
+    httpResponse.Code = http.StatusInternalServerError 
     httpResponse.MessageError = "the request's body is an invalid"
     return 
   } 
@@ -71,7 +71,7 @@ func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *ht
   err = json.Unmarshal( body, &newRoute ) 
   if err != nil { 
     defer handlerApi.Logger.Warningf( "Post function '%v' ; can't parse body : %v", routeId, err )
-    httpResponse.Code = 400 
+    httpResponse.Code = http.StatusBadRequest 
     httpResponse.MessageError = "the request's body is an invalid"
     return 
   } 
@@ -96,7 +96,7 @@ func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *ht
   } 
   defer handlerApi.Logger.Warningf( "Post service '%v' executed", routeId )
   handlerApi.Conf.Routes[routeId] = &newRoute 
-  httpResponse.Code = 200 
+  httpResponse.Code = http.StatusOK 
   httpResponse.Payload = nil 
 }
 
@@ -107,7 +107,7 @@ func ( handlerApi *HandlerApi ) Delete( httpResponse *httpresponse.Response, r *
   route, _ := handlerApi.Conf.GetRoute( routeId )
   if route == nil {
     defer handlerApi.Logger.Infof( "Delete service '%v' failed : non-existent", routeId )
-    httpResponse.Code = 404 
+    httpResponse.Code = http.StatusNotFound 
     httpResponse.MessageError = "unknow route"
     return 
   } else if route.IsService != true {
@@ -135,7 +135,7 @@ func ( handlerApi *HandlerApi ) Delete( httpResponse *httpresponse.Response, r *
   }
   handlerApi.Logger.Warningf( "Delete service '%v' (cId %v) executed", routeId, cId )
   handlerApi.Logger.Warningf( "Delete service '%v' removed from routes", routeId )
-  httpResponse.Code = 200 
+  httpResponse.Code = http.StatusOK 
   httpResponse.Payload = nil 
 }
 
@@ -146,17 +146,17 @@ func ( handlerApi *HandlerApi ) Get( httpResponse *httpresponse.Response, r *htt
     route, _ := handlerApi.Conf.GetRoute( routeId )
   if route == nil {
     defer handlerApi.Logger.Infof( "Get service '%v' failed : non-existent", routeId )
-    httpResponse.Code = 404 
+    httpResponse.Code = http.StatusNotFound 
     httpResponse.MessageError = "unknow route"
     return 
   } else if route.IsService != true {
     defer handlerApi.Logger.Infof( "Get service '%v' failed : existent but not a function", routeId )
-    httpResponse.Code = 400
+    httpResponse.Code = http.StatusBadRequest
     httpResponse.MessageError = "this route is not a service"
     return 
   }
   defer handlerApi.Logger.Infof( "Get service '%v' asked (existent)", routeId )
-  httpResponse.Code = 200 
+  httpResponse.Code = http.StatusOK 
   routeToJson := *route
   httpResponse.Payload = routeToJson 
 }
