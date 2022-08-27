@@ -17,7 +17,7 @@ import (
 func CreateRegexUrl() {
   regex, err := regexp.Compile( "^([a-z0-9_-]+)" )
   if err != nil {
-    os.Exit( ExitConfRegexUrlKo )
+    os.Exit( configuration.ExitConfRegexUrlKo )
   }
   GLOBAL_REGEX_ROUTE_NAME = regex
 }
@@ -71,19 +71,19 @@ func StartEnv() {
   GLOBAL_CONF_PATH = string( *confPath )
   if *prepareEnv {
     if CreateEnv() {
-      os.Exit( ExitOk )
+      os.Exit( configuration.ExitOk )
     } else {
-      os.Exit( ExitConfCreateKo )
+      os.Exit( configuration.ExitConfCreateKo )
     }
   }
   err := configuration.Import( GLOBAL_CONF_PATH, &GLOBAL_CONF )  
   if err != nil {
     Logger.Panicf( "unable to load configuration with error : %v", err )
-    os.Exit( ExitConfLoadKo )
+    os.Exit( configuration.ExitConfLoadKo )
   } 
   if message, state := GLOBAL_CONF.Check() ; !state {
     Logger.Panicf( "check of conf failed : %v", message ) 
-    os.Exit( ExitConfCheckKo )
+    os.Exit( configuration.ExitConfCheckKo )
   }
   GLOBAL_CONF.Logger = &Logger
   GLOBAL_CONF.Containers.Logger = &Logger

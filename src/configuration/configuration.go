@@ -15,10 +15,16 @@ import(
   "logger"
 )
 
+// -----------------------------------------------
+
 var ConfDirTmp string                   = "./tmp"
 var ConfDirContent string               = "./content"
 
+// -----------------------------------------------
+
 var ConfPrefix string                   = "lambda"
+
+// -----------------------------------------------
 
 const (
   ConfIncomingPortDefault               = 9090
@@ -33,6 +39,20 @@ const (
   ServiceDelayDefault                   = 8
   ServicePortDefault                    = 80
 )
+
+// -----------------------------------------------
+
+const (
+  ExitOk = iota           // toujours '0'
+  ExitUndefined           // toujours '1'
+  ExitConfCreateKo
+  ExitConfLoadKo
+  ExitConfCheckKo
+  ExitConfRegexUrlKo
+  ExitConfShuttingServerFailed
+)
+
+// -----------------------------------------------
 
 type Conf struct {
   Logger *logger.Logger `json:"-"`

@@ -2,7 +2,6 @@ package main
 
 import(
   "encoding/json"
-  "os"
   "strings"
   "time"
   "fmt"
@@ -251,18 +250,4 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   }
   httpResponse.Code = proxyRes.StatusCode 
   httpResponse.IOFile = proxyRes.Body
-}
-
-// -----------------------------------------------
-
-func RunServer ( httpServer *http.Server ) {
-  defer Logger.Info( "Shutdown ListenAndServeTLS terminated" )
-  err := httpServer.ListenAndServeTLS(
-    "server.crt",
-    "server.key",
-  )
-  if err != nil && err != http.ErrServerClosed {
-    Logger.Panic( "ListenAndServe err :", err )
-    os.Exit( ExitUndefined )
-  }
 }

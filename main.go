@@ -23,6 +23,7 @@ import (
   // -----------
   "logger"
   "configuration"
+  "server"
   ApiConfiguration "api/configuration"
   ApiFunctions "api/functions"
   ApiServices "api/services"
@@ -41,18 +42,6 @@ var GLOBAL_WAIT_GROUP sync.WaitGroup
 // -----------------------------------------------
 
 var Logger logger.Logger
-
-// -----------------------------------------------
-
-const (
-  ExitOk = iota           // toujours '0'
-  ExitUndefined           // toujours '1'
-  ExitConfCreateKo
-  ExitConfLoadKo
-  ExitConfCheckKo
-  ExitConfRegexUrlKo
-  ExitConfShuttingServerFailed
-)
 
 // -----------------------------------------------
 
@@ -113,7 +102,7 @@ func main() {
 
   signalChan := make(chan os.Signal, 1)
   go CleanContainers( ctx, false )
-  go RunServer( httpServer )
+  go server.Run( &Logger, httpServer )
   signal.Notify(
     signalChan,
     syscall.SIGHUP,
@@ -125,7 +114,7 @@ func main() {
 
   if err := httpServer.Shutdown( ctx ); err != nil {
     Logger.Panic( "shutdown error: %v\n", err )
-    defer os.Exit( ExitConfShuttingServerFailed )
+    defer os.Exit( configuration.ExitConfShuttingServerFailed )
   }
 
   cancel()
