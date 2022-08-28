@@ -18,11 +18,8 @@ jobs:
       with:
         go-version: 1.18
 
-    #- name: Test
-    #  run: GOPATH=$(pwd) go test -v 
-
-    - name: Build
-      run: GOPATH=$(pwd) go build -v -o ./faass 
+    - name: Build and functional tests
+      run: ./build-and-test.sh
       
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
