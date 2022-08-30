@@ -3,8 +3,11 @@ package functions
 import (
   "net/http"
   "sync"
+  "io"
   "io/ioutil"
   "encoding/json"
+  "path/filepath"
+  "os"
   // "fmt"
   // -----------
   "api"
@@ -47,9 +50,9 @@ func ( handlerApi HandlerApi ) ServeHTTP ( w http.ResponseWriter, r *http.Reques
   }
 }
 
-func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *http.Request ) {
-  handlerApi.ConfMutext.Lock()
-  defer handlerApi.ConfMutext.Unlock()
+func ( handlerApi *HandlerApi ) Post ( httpResponse *httpresponse.Response, r *http.Request ) {
+  handlerApi.ConfMutext.RLock()
+  defer handlerApi.ConfMutext.RUnlock()
   routeId := r.URL.Path[15:] // /api/functions/
   route, _ := handlerApi.Conf.GetRoute( routeId )
   if route != nil && route.IsService == true {
@@ -58,9 +61,37 @@ func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *ht
     httpResponse.MessageError = "this route is a service, not a function"
     return
   }
+  functionPath := filepath.Join(
+    handlerApi.Conf.TmpDir,
+    routeId,
+  )
+  functionFile, err := os.Create( functionPath )
+  defer functionFile.Close()
+  if err != nil {
+    defer handlerApi.Logger.Infof( "Post function '%v' failed : impossible to create file function (%v)", routeId, err )
+    httpResponse.Code = http.StatusInternalServerError
+    httpResponse.MessageError = "impossible to create file function"
+    return
+  }
+  io.Copy( functionFile, r.Body )
+  httpResponse.Code = http.StatusCreated
+  httpResponse.MessageError = ""
+}
+
+func ( handlerApi *HandlerApi ) Patch ( httpResponse *httpresponse.Response, r *http.Request ) {
+  handlerApi.ConfMutext.Lock()
+  defer handlerApi.ConfMutext.Unlock()
+  routeId := r.URL.Path[15:] // /api/functions/
+  route, _ := handlerApi.Conf.GetRoute( routeId )
+  if route != nil && route.IsService == true {
+    defer handlerApi.Logger.Infof( "Patch function '%v' failed : existent but not a function", routeId )
+    httpResponse.Code = http.StatusPreconditionFailed
+    httpResponse.MessageError = "this route is a service, not a function"
+    return
+  }
   body, err := ioutil.ReadAll( r.Body )
   if err != nil {
-    defer handlerApi.Logger.Warningf( "Post function '%v' ; can't read body : %v", routeId, err )
+    defer handlerApi.Logger.Warningf( "Patch function '%v' ; can't read body : %v", routeId, err )
     httpResponse.Code = http.StatusInternalServerError
     httpResponse.MessageError = "the request's body is an invalid"
     return
@@ -68,7 +99,7 @@ func ( handlerApi *HandlerApi ) Post( httpResponse *httpresponse.Response, r *ht
   var newRoute = itinerary.Route {}
   err = json.Unmarshal( body, &newRoute )
   if err != nil {
-    defer handlerApi.Logger.Warningf( "Post function '%v' ; can't parse body : %v", routeId, err )
+    defer handlerApi.Logger.Warningf( "Patch function '%v' ; can't parse body : %v", routeId, err )
     httpResponse.Code = http.StatusBadRequest
     httpResponse.MessageError = "the request's body is an invalid"
     return
