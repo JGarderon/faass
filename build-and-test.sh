@@ -34,7 +34,7 @@ printf "\n---\t\t---\t\t---\t build\n\n"
 
 printf "\n---\t\t---\t\t---\t functional tests\n\n"
 
-./tests/functional-testing.py \
+PYTHONWARNINGS="ignore:Unverified HTTPS request" ./tests/functional-testing.py \
 	--run 
 
 printf "\n---\t\t---\t\t---\t stop\n\n"

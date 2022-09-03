@@ -42,6 +42,8 @@ func ( handlerApi HandlerApi ) ServeHTTP ( w http.ResponseWriter, r *http.Reques
       handlerApi.Get( &httpResponse, r )
     case http.MethodPost:
       handlerApi.Post( &httpResponse, r )
+    case http.MethodPatch:
+      handlerApi.Patch( &httpResponse, r )
     case http.MethodDelete:
       handlerApi.Delete( &httpResponse, r )
     default:
@@ -115,7 +117,7 @@ func ( handlerApi *HandlerApi ) Patch ( httpResponse *httpresponse.Response, r *
   httpResponse.Payload = route
 }
 
-func ( handlerApi *HandlerApi ) Delete( httpResponse *httpresponse.Response, r *http.Request ) {
+func ( handlerApi *HandlerApi ) Delete ( httpResponse *httpresponse.Response, r *http.Request ) {
   handlerApi.ConfMutext.Lock()
   defer handlerApi.ConfMutext.Unlock()
   routeId := r.URL.Path[15:] // /api/functions/
@@ -139,7 +141,7 @@ func ( handlerApi *HandlerApi ) Delete( httpResponse *httpresponse.Response, r *
 
 }
 
-func ( handlerApi *HandlerApi ) Get( httpResponse *httpresponse.Response, r *http.Request ) {
+func ( handlerApi *HandlerApi ) Get ( httpResponse *httpresponse.Response, r *http.Request ) {
     handlerApi.ConfMutext.RLock()
     defer handlerApi.ConfMutext.RUnlock()
     routeId := r.URL.Path[15:] // /api/functions/

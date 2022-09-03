@@ -23,6 +23,7 @@ import (
   // -----------
   "logger"
   "configuration"
+  "configuration/utils"
   "server"
   ApiConfiguration "api/configuration"
   ApiFunctions "api/functions"
@@ -48,9 +49,14 @@ var Logger logger.Logger
 func main() { 
 
   Logger.Init()
-  StartEnv()
+  utils.StartEnv( 
+    &GLOBAL_CONF_MUTEXT,
+    &GLOBAL_CONF_PATH, 
+    &GLOBAL_CONF, 
+    &Logger, 
+  )
 
-  CreateRegexUrl()
+  utils.CreateRegexUrl( GLOBAL_REGEX_ROUTE_NAME )
 
   ctx := context.Background()
   ctx, cancel := context.WithCancel( context.Background() )
@@ -101,7 +107,14 @@ func main() {
   }
 
   signalChan := make(chan os.Signal, 1)
-  go CleanContainers( ctx, false )
+  go utils.CleanContainers( 
+    ctx, 
+    false,
+    &GLOBAL_CONF_MUTEXT,
+    &GLOBAL_CONF, 
+    &GLOBAL_WAIT_GROUP, 
+    &Logger,
+  )
   go server.Run( &Logger, httpServer )
   signal.Notify(
     signalChan,

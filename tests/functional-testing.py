@@ -95,8 +95,9 @@ class Runner():
           stream.readline(), 
           timeout=1 
         )
-        if l != b'': 
-          logger_bar.debug( l )
+        l = l.decode( "utf8" ).strip() 
+        if l != '': 
+          logger_bar.debug( f'"{l}"' )
       except asyncio.TimeoutError:
         pass
 
@@ -172,14 +173,20 @@ class Tests:
         if pending.get_name() == "runner": 
           await self.runner.purge( kill=False ) 
     except Exception as err: 
-      print( "exception during tests ", err ) 
+      logger_bar.warningf( f"exception during tests : {err}" ) 
     finally:
       await self.runner.purge( kill=True )
 
-  async def test_group_truc( self ): 
-    await asyncio.sleep( 1 )
-    print("simulated test")
-    await asyncio.sleep( 1 )
+# -----------------------------------------------
+
+class TestsAll( Tests ): 
+  url = "https://127.0.0.1:9090/"
+
+  async def test_home_get( self ): 
+    await asyncio.sleep( 2 )
+    r = requests.get( self.url, verify=False ) #, auth=('user', 'pass'))
+    print( r.status_code )
+    await asyncio.sleep(0)
 
 # -----------------------------------------------
 
@@ -274,7 +281,7 @@ try:
             "--conf", args.conf_path 
         ] 
       )
-      tests = Tests( runner )
+      tests = TestsAll( runner )
       asyncio.run( 
         tests.execute(),
         debug=True 
