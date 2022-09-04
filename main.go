@@ -56,8 +56,8 @@ func main() {
     &Logger, 
   )
 
-  utils.CreateRegexUrl( GLOBAL_REGEX_ROUTE_NAME )
-
+  GLOBAL_REGEX_ROUTE_NAME = utils.CreateRegexUrl()
+  
   ctx := context.Background()
   ctx, cancel := context.WithCancel( context.Background() )
 

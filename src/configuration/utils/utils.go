@@ -17,12 +17,12 @@ import (
 
 // -----------------------------------------------
 
-func CreateRegexUrl( vRegex *regexp.Regexp ) {
+func CreateRegexUrl() *regexp.Regexp {
   regex, err := regexp.Compile( "^([a-z0-9_-]+)" )
   if err != nil {
     os.Exit( configuration.ExitConfRegexUrlKo )
   }
-  vRegex = regex
+  return regex 
 }
 
 func GetRootPath() (rootPath string, err error) {
