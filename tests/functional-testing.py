@@ -157,13 +157,27 @@ class Tests:
     self.groups = 0 
 
   async def __execute__task__( self, fn, t ): 
-    await asyncio.sleep( 1 )
     try: 
       logger_bar.debug( f"execute test '{t}' (start)" ) 
       await fn() 
       logger_bar.ok( f"execute test '{t}' (pass)" ) 
     except TestFail as err: 
       logger_bar.warning( f"test '{t}' in fail : {err}" ) 
+    except Exception as err: 
+      logger_bar.critical( f"test '{t}' in unexpected error : {err}" ) 
+
+  async def __execute__tasks__( self ): 
+    await asyncio.sleep( 3 ) # sleep during start of subprocess Faass
+    asyncio.gather( 
+      *[ 
+        self.__execute__task__( 
+          getattr( self, t ),
+          t
+        ) 
+          for t in dir( self )
+          if t.startswith( "test_" ) 
+      ]
+    )
 
   async def execute( self ): 
     try: 
@@ -173,14 +187,10 @@ class Tests:
             self.runner.run(), 
             name="runner" 
           ),
-          *[ 
-            asyncio.create_task( 
-              self.__execute__task__( getattr( self, t ), t ),
-              name=t
-            ) 
-              for t in dir( self )
-              if t.startswith( "test_" ) 
-          ]
+          asyncio.create_task( 
+            self.__execute__tasks__(), 
+            name="tests"
+          ) 
         ], 
         return_when=asyncio.FIRST_COMPLETED
       ) 
@@ -196,20 +206,23 @@ class Tests:
 
 class TestsAll( Tests ): 
   url = "https://127.0.0.1:9090"
+  path_lambda = "/lambda"
+  path_api = "/api"
+  auth = ( 'admin', 'azerty' )
 
   async def test_home_get( self ): 
-    r = requests.get( self.url, verify=False ) #, auth=('user', 'pass'))
+    r = requests.get( self.url, verify=False ) 
     if r.status_code != 200: 
       raise TestFail( f"home in error, HTTP status : {r.status_code} (expected : 200)" )
 
   async def test_lambda_functions_get( self ): 
-    r = requests.get( f"{self.url}/lambda/example-function", verify=False ) #, auth=('user', 'pass'))
+    r = requests.get( f"{self.url}{self.path_lambda}/example-function", verify=False )
     # print( r.text, flush=True )
     if r.status_code != 200: 
       raise TestFail( f"lambda-functions in error, HTTP status : {r.status_code} (expected : 200)" )
 
   async def test_lambda_services_get( self ): 
-    r = requests.get( f"{self.url}/lambda/example-service", verify=False, auth=( 'admin', 'azerty' ) )
+    r = requests.get( f"{self.url}{self.path_lambda}/example-service", verify=False, auth=self.auth )
     if r.status_code != 200: 
       raise TestFail( f"lambda-service in error, HTTP status : {r.status_code} (expected : 200)" )
 
