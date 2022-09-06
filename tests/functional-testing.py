@@ -5,6 +5,8 @@ import asyncio
 import argparse
 import logging
 import types
+import concurrent.futures
+from functools import partial
 
 # -----------------------------------------------
 
@@ -152,6 +154,8 @@ class Runner():
 
 class Tests: 
 
+  executor = concurrent.futures.ThreadPoolExecutor( max_workers=15 )
+
   def __init__( self, runner ):
     self.runner = runner
     self.groups = 0 
@@ -165,6 +169,16 @@ class Tests:
       logger_bar.warning( f"test '{t}' in fail : {err}" ) 
     except Exception as err: 
       logger_bar.critical( f"test '{t}' in unexpected error : {err}" ) 
+
+  async def __wrap_task_fn__( self, fn, *args, **kwargs ): 
+    return await self.current_loop.run_in_executor(
+      self.executor,
+      partial( 
+        fn, 
+        *args, 
+        **kwargs
+      ) 
+    ) 
 
   async def __execute__tasks__( self ): 
     await asyncio.sleep( 3 ) # sleep during start of subprocess Faass
@@ -181,6 +195,7 @@ class Tests:
 
   async def execute( self ): 
     try: 
+      self.current_loop = asyncio.get_running_loop()
       _, pendings = await asyncio.wait(
         [ 
           asyncio.create_task( 
@@ -197,6 +212,8 @@ class Tests:
       for pending in pendings: 
         if pending.get_name() == "runner": 
           await self.runner.purge( kill=False ) 
+        else:
+          logger_bar.critical( "not all tests have been played" )
     except Exception as err: 
       logger_bar.warning( f"exception during tests : {err}" ) 
     finally:
@@ -211,20 +228,54 @@ class TestsAll( Tests ):
   auth = ( 'admin', 'azerty' )
 
   async def test_home_get( self ): 
-    r = requests.get( self.url, verify=False ) 
+    r = await self.__wrap_task_fn__(
+      requests.get,
+      self.url, 
+      verify=False 
+    ) 
     if r.status_code != 200: 
-      raise TestFail( f"home in error, HTTP status : {r.status_code} (expected : 200)" )
+      raise TestFail( f"test home in error, HTTP status : {r.status_code} (expected : 200)" )
 
   async def test_lambda_functions_get( self ): 
-    r = requests.get( f"{self.url}{self.path_lambda}/example-function", verify=False )
-    # print( r.text, flush=True )
+    m = "echo"
+    r = await self.__wrap_task_fn__(
+      requests.get,
+      f"{self.url}{self.path_lambda}/example-function", 
+      data=m, 
+      verify=False
+    ) 
     if r.status_code != 200: 
-      raise TestFail( f"lambda-functions in error, HTTP status : {r.status_code} (expected : 200)" )
+      raise TestFail( f"test lambda-functions in error, HTTP status : {r.status_code} (expected : 200)" )
+    if r.text != m: 
+      raise TestFail( f"test lambda-functions in error, no echo found (expected : '{m}')" )
 
   async def test_lambda_services_get( self ): 
-    r = requests.get( f"{self.url}{self.path_lambda}/example-service", verify=False, auth=self.auth )
+    r = await self.__wrap_task_fn__(
+      requests.get,
+      f"{self.url}{self.path_lambda}/example-service", 
+      verify=False, 
+      auth=self.auth 
+    )
     if r.status_code != 200: 
-      raise TestFail( f"lambda-service in error, HTTP status : {r.status_code} (expected : 200)" )
+      raise TestFail( f"test lambda-service in error, HTTP status : {r.status_code} (expected : 200)" )
+
+  async def test_lambda_url_invalid_get( self ): 
+    r = await self.__wrap_task_fn__(
+      requests.get,
+      f"{self.url}{self.path_lambda}/?", 
+      verify=False 
+    )
+    if r.status_code != 400: 
+      raise TestFail( f"test lambda-? (not found) in error, HTTP status : {r.status_code} (expected : 400)" )
+
+  async def test_lambda_url_notfound_get( self ): 
+    r = await self.__wrap_task_fn__(
+      requests.get,
+      f"{self.url}{self.path_lambda}/notfound", 
+      verify=False 
+    ) 
+    if r.status_code != 404: 
+      raise TestFail( f"test lambda-? (not found) in error, HTTP status : {r.status_code} (expected : 404)" )
 
 # -----------------------------------------------
 
@@ -336,10 +387,10 @@ try:
       tests = TestsAll( runner )
       asyncio.run( 
         tests.execute(),
-        debug=True 
+        debug=False 
       )
       if runner.proc is None: 
-        raise Exception( "process for run has 'None' value" ) 
+        raise Exception( "process for run has 'None' value at end of script" ) 
       elif runner.proc.returncode == 0: 
         logger_bar.ok( "run without error" ) 
       else: 

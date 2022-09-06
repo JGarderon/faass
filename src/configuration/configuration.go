@@ -32,7 +32,7 @@ const (
   ConfDelayCleaningContainersMin        = 5
   ConfDelayCleaningContainersMax        = 3600
 
-  FunctionTimeoutDefault                = 1000
+  FunctionTimeoutDefault                = 1500
 
   ServiceTimeoutDefault                 = 250
   ServiceRetryDefault                   = 3

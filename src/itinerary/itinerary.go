@@ -20,10 +20,10 @@ type Route struct {
   Retry int `json:"retry"`
   Delay int `json:"delay"`
   Port int `json:"port"`
-  LastRequest time.Time 
-  Id string
-  IpAdress string
-  Mutex sync.RWMutex
+  LastRequest time.Time `json:"-"`
+  Id string `json:"-"`
+  IpAdress string `json:"-"`
+  Mutex sync.RWMutex `json:"-"`
 }
 
 func ( route *Route ) CreateFileEnv( tmpDir string ) ( fileEnvPath string, err error ) {

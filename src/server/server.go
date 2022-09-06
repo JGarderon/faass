@@ -16,6 +16,7 @@ func Run ( logger *logger.Logger, httpServer *http.Server ) {
     "server.crt",
     "server.key",
   )
+  // err := httpServer.ListenAndServe()
   if err != nil && err != http.ErrServerClosed {
     logger.Panicf( "General internal server error : %v", err )
     os.Exit( configuration.ExitUndefined )

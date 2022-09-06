@@ -28,14 +28,15 @@ printf "\n---\t\t---\t\t---\t build\n\n"
 			--build \
 			--origin-path `pwd` \
 			--cache-path "`pwd`/cache" \
+			--log INFO \
 	|| exit 1
 
 [ ! -f ./conf.json ] && ./faass -prepare 
 
 printf "\n---\t\t---\t\t---\t functional tests\n\n"
 
-PYTHONWARNINGS="ignore:Unverified HTTPS request" ./tests/functional-testing.py \
+`PYTHONWARNINGS="ignore:Unverified HTTPS request" ./tests/functional-testing.py \
 	--run \
-	--log INFO
+	${@:1}`
 
 printf "\n---\t\t---\t\t---\t stop\n\n"
