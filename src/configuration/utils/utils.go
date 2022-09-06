@@ -85,6 +85,7 @@ func StartEnv( globalConfMutex *sync.RWMutex, globalConfPath *string, globalConf
     os.Exit( configuration.ExitConfCheckKo )
   }
   globalConf.Logger = logger
+  globalConf.Containers.PathCmd = globalConf.PathCmdContainer
   globalConf.Containers.Logger = logger
 }
 

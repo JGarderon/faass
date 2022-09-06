@@ -3,7 +3,7 @@ package main
   FaasS = Function as a (Simple) Service
   ---
   Created by Julien Garderon (Nothus)
-  from August 01 to 19, 2022
+  from August 01 to September 06, 2022
   MIT Licence
   ---
   This is a POC - Proof of Concept -, based on the idea of the OpenFaas project

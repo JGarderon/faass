@@ -76,6 +76,12 @@ logger_bar.special = types.MethodType( logging_level_special, logger_bar )
 logger_general.ok = types.MethodType( logging_level_ok, logger_general )
 logger_bar.ok = types.MethodType( logging_level_ok, logger_bar )
 
+
+# -----------------------------------------------
+
+class TestFail( Exception ): 
+  pass 
+
 # -----------------------------------------------
 
 class Runner():
@@ -150,6 +156,15 @@ class Tests:
     self.runner = runner
     self.groups = 0 
 
+  async def __execute__task__( self, fn, t ): 
+    await asyncio.sleep( 1 )
+    try: 
+      logger_bar.debug( f"execute test '{t}' (start)" ) 
+      await fn() 
+      logger_bar.ok( f"execute test '{t}' (pass)" ) 
+    except TestFail as err: 
+      logger_bar.warning( f"test '{t}' in fail : {err}" ) 
+
   async def execute( self ): 
     try: 
       _, pendings = await asyncio.wait(
@@ -160,7 +175,7 @@ class Tests:
           ),
           *[ 
             asyncio.create_task( 
-              getattr( self, t )(),
+              self.__execute__task__( getattr( self, t ), t ),
               name=t
             ) 
               for t in dir( self )
@@ -173,20 +188,30 @@ class Tests:
         if pending.get_name() == "runner": 
           await self.runner.purge( kill=False ) 
     except Exception as err: 
-      logger_bar.warningf( f"exception during tests : {err}" ) 
+      logger_bar.warning( f"exception during tests : {err}" ) 
     finally:
       await self.runner.purge( kill=True )
 
 # -----------------------------------------------
 
 class TestsAll( Tests ): 
-  url = "https://127.0.0.1:9090/"
+  url = "https://127.0.0.1:9090"
 
   async def test_home_get( self ): 
-    await asyncio.sleep( 2 )
     r = requests.get( self.url, verify=False ) #, auth=('user', 'pass'))
-    print( r.status_code )
-    await asyncio.sleep(0)
+    if r.status_code != 200: 
+      raise TestFail( f"home in error, HTTP status : {r.status_code} (expected : 200)" )
+
+  async def test_lambda_functions_get( self ): 
+    r = requests.get( f"{self.url}/lambda/example-function", verify=False ) #, auth=('user', 'pass'))
+    # print( r.text, flush=True )
+    if r.status_code != 200: 
+      raise TestFail( f"lambda-functions in error, HTTP status : {r.status_code} (expected : 200)" )
+
+  async def test_lambda_services_get( self ): 
+    r = requests.get( f"{self.url}/lambda/example-service", verify=False, auth=( 'admin', 'azerty' ) )
+    if r.status_code != 200: 
+      raise TestFail( f"lambda-service in error, HTTP status : {r.status_code} (expected : 200)" )
 
 # -----------------------------------------------
 
@@ -195,7 +220,7 @@ logger_general.special( """
   FaasS = Function as a (Simple) Service
   ---
   Created by Julien Garderon (Nothus)
-  from August 01 to 28, 2022
+  from August 01 to September 06, 2022
   MIT Licence
   ---
   This is a POC - Proof of Concept -, based on the idea of the OpenFaas project
@@ -247,7 +272,20 @@ parser.add_argument(
   default="./faass",
   help="set the name of output builder"
 )
+parser.add_argument( 
+  "--log", 
+  type=str, 
+  default="INFO",
+  help="set the log level (DEBUG, INFO, ...)"
+)
 args = parser.parse_args()
+
+log_level = args.log.upper() 
+numeric_level = getattr( logging, log_level, None )
+if not isinstance( numeric_level, int ):
+    raise logger_general.critical( f"Invalid log level: {log_level}" )
+logger_general.setLevel( level=numeric_level )
+logger_bar.setLevel( level=numeric_level )
 
 try: 
   if args.build:
@@ -267,7 +305,7 @@ try:
       **builder_env
     ) 
     builder.timeout_terminate = 60
-    asyncio.run( builder.run() )
+    asyncio.run( builder.run() ) 
     if builder.proc.returncode != 0:
       logger_general.critical( "failed for build programm" ) 
       exit( 1 )
@@ -279,7 +317,8 @@ try:
         [ 
           args.output_file, 
             "--conf", args.conf_path 
-        ] 
+        ],
+        PATH="/usr/bin/docker" 
       )
       tests = TestsAll( runner )
       asyncio.run( 

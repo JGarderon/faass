@@ -15,6 +15,7 @@ import(
 )
 
 type Containers struct {
+  PathCmd string 
   Logger *logger.Logger
 }
 
@@ -45,7 +46,7 @@ func ( container *Containers ) ExecuteRequest ( ctx context.Context, routeName s
       imageContainer, 
   } 
   args = append(args, scriptCmd[:]...)
-  cmd = exec.CommandContext( ctx, "docker", args... )
+  cmd = exec.CommandContext( ctx, container.PathCmd, args... )
   return cmd, nil 
 } 
 
@@ -129,7 +130,7 @@ func ( container *Containers ) Create ( tmpDir string, route *itinerary.Route ) 
       route.Image,
   }   
   args = append(args, route.ScriptCmd[:]...)
-  cmd := exec.Command( "docker", args... )
+  cmd := exec.Command( container.PathCmd, args... )
   o, err := cmd.CombinedOutput()
   cId := strings.TrimSuffix( string( o ), "\n" )
   if err != nil {
@@ -164,7 +165,7 @@ func ( container *Containers ) Start ( route *itinerary.Route ) ( state bool, er
     return false, errors.New( "ID container has null string" )
   }
   cmd := exec.Command(
-    "docker", "container", "restart",
+    container.PathCmd, "container", "restart",
       route.Id,
   )
   o, err := cmd.CombinedOutput()
@@ -180,7 +181,7 @@ func ( container *Containers ) Stop ( route *itinerary.Route ) ( state bool, err
     return false, errors.New( "ID container has null string" )
   }
   cmd := exec.Command(
-    "docker", "container", "stop",
+    container.PathCmd, "container", "stop",
       route.Id,
   )
   o, err := cmd.CombinedOutput()
@@ -196,7 +197,7 @@ func ( container *Containers ) Remove ( route *itinerary.Route ) ( state bool, e
     return false, errors.New( "ID container has null string" )
   }
   cmd := exec.Command(
-    "docker", "container", "rm",
+    container.PathCmd, "container", "rm",
       route.Id,
   )
   o, err := cmd.CombinedOutput()
@@ -213,7 +214,7 @@ func ( container *Containers ) GetInfos ( route *itinerary.Route, pattern string
     return "", errors.New( "ID container has null string" )
   }
   cmd := exec.Command(
-    "docker", "container", "inspect",
+    container.PathCmd, "container", "inspect",
       "-f", pattern,
         route.Id,
   )

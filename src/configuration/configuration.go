@@ -56,6 +56,7 @@ const (
 
 type Conf struct {
   Logger *logger.Logger `json:"-"`
+  PathCmdContainer string `json:"pathcmdcontainer"`
   Containers executors.Containers `json:"-"`
   Domain string `json:"domain"`
   Authorization string `json:"authorization"`
@@ -114,6 +115,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
     rootPath,
     ConfDirTmp,
   )
+  c.PathCmdContainer = "/usr/bin/docker"
   c.Domain = "https://localhost"
   c.Authorization = "Basic YWRtaW46YXplcnR5" // admin:azerty
   c.IncomingAdress = "0.0.0.0"
