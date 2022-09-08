@@ -23,12 +23,12 @@ buildFlags="$buildFlags -X configuration.ConfPrefix=$ConfPrefix"
 printf "\n---\t\t---\t\t---\t build\n\n"
 
 [ -f faass ] \
-	&& rm faass ; \
+	&& `rm faass ; \
 		./tests/functional-testing.py \
 			--build \
 			--origin-path `pwd` \
 			--cache-path "`pwd`/cache" \
-			--log DEBUG \
+			${@:1}` \
 	|| exit 1
 
 [ ! -f ./conf.json ] && ./faass -prepare 
