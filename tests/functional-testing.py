@@ -218,6 +218,8 @@ class Tests:
       logger_bar.warning( f"exception during tests : {err}" ) 
     finally:
       await self.runner.purge( kill=True )
+      if self.runner.proc.returncode != 0: 
+        logger_bar.critical( f"runner of faass stopped with '{self.runner.proc.returncode}' code" ) 
 
 # -----------------------------------------------
 

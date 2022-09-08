@@ -57,7 +57,7 @@ func main() {
   )
 
   GLOBAL_REGEX_ROUTE_NAME = utils.CreateRegexUrl()
-  
+
   ctx := context.Background()
   ctx, cancel := context.WithCancel( context.Background() )
 
@@ -115,7 +115,7 @@ func main() {
     &GLOBAL_WAIT_GROUP, 
     &Logger,
   )
-  go server.Run( &Logger, httpServer )
+  go server.Run( &GLOBAL_CONF, &Logger, httpServer )
   signal.Notify(
     signalChan,
     syscall.SIGHUP,

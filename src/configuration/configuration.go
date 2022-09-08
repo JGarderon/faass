@@ -9,6 +9,7 @@ import(
   "encoding/json"
   "strconv"
   "net"
+  "strings"
   // -----------
   "itinerary"
   "executors"
@@ -62,6 +63,9 @@ type Conf struct {
   Authorization string `json:"authorization"`
   IncomingAdress string `json:"adress"`
   IncomingPort int `json:"listen"`
+  IncomingTLS string `json:"tls"`
+  IncomingTLSCrt string `json:"-"`
+  IncomingTLSKey string `json:"-"`
   DelayCleaningContainers int `json:"delay"`
   UI string `json:"ui"`
   TmpDir string `json:"tmp"`
@@ -87,6 +91,16 @@ func Import( pathRoot string, c *Conf ) error {
 
 func ( c *Conf ) Check() ( message string, state bool ) {
   state = true
+  if c.IncomingTLS != "" {
+    r := strings.Split( c.IncomingTLS, ":" )
+    if len( r ) != 2 {
+      message = "tls has no ':' separator"
+      state = false 
+    } else {
+      c.IncomingTLSCrt = r[0]
+      c.IncomingTLSKey = r[1]
+    }
+  }
   if net.ParseIP( c.IncomingAdress ) == nil {
     message = "incomming adress is not an ip"
     state = false 

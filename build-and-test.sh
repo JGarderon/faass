@@ -28,7 +28,7 @@ printf "\n---\t\t---\t\t---\t build\n\n"
 			--build \
 			--origin-path `pwd` \
 			--cache-path "`pwd`/cache" \
-			--log INFO \
+			--log DEBUG \
 	|| exit 1
 
 [ ! -f ./conf.json ] && ./faass -prepare 
