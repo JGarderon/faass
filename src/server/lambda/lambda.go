@@ -1,4 +1,4 @@
-package main
+package lambda
 
 import(
   "encoding/json"
@@ -11,21 +11,27 @@ import(
   "unicode/utf8"
   "context"
   "encoding/binary" 
-  // -----------
+  "regexp"
+  "sync"
+  //-----------
   "httpresponse"
   "itinerary"
+  "configuration"
+  "logger"
 )
 
 // -----------------------------------------------
 
-type FunctionResponseHeaders struct {
-  Code int `json:"code"`
-  Headers map[string]string `json:"headers"`
-} 
+type HandlerLambda struct {
+  GlobalRouteRegex *regexp.Regexp
+  Logger *logger.Logger
+  ConfMutext *sync.RWMutex
+  Conf *configuration.Conf
+}
 
 // -----------------------------------------------
 
-func lambdaHandlerAuthorization( c *itinerary.Route, r *http.Request ) bool {
+func Authorization( c *itinerary.Route, r *http.Request ) bool {
   if c.Authorization == "" { 
     if r.Header.Get( "Authorization" ) != "" {
       return false 
@@ -41,22 +47,29 @@ func lambdaHandlerAuthorization( c *itinerary.Route, r *http.Request ) bool {
 
 // -----------------------------------------------
 
-func lambdaHandlerFunction( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
+type FunctionResponseHeaders struct {
+  Code int `json:"code"`
+  Headers map[string]string `json:"headers"`
+} 
+
+// -----------------------------------------------
+
+func ( handlerLambda *HandlerLambda ) ServeFunction ( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
     time.Duration( route.Timeout ) * time.Millisecond, 
   ) 
   defer cancel() 
-  GLOBAL_CONF_MUTEXT.RLock() 
-  tmpDir := GLOBAL_CONF.TmpDir
-  GLOBAL_CONF_MUTEXT.RUnlock() 
+  handlerLambda.ConfMutext.RLock() 
+  tmpDir := handlerLambda.Conf.TmpDir
+  handlerLambda.ConfMutext.RUnlock() 
   fileEnvPath, err := route.CreateFileEnv( tmpDir ) 
   if err != nil {
     httpResponse.MessageError = "unable to create environment file"
     return 
   }
   routeName := route.Name 
-  cmd, err := GLOBAL_CONF.Containers.ExecuteRequest( 
+  cmd, err := handlerLambda.Conf.Containers.ExecuteRequest( 
     ctx, 
     routeName, 
     route.ScriptPath, 
@@ -64,21 +77,21 @@ func lambdaHandlerFunction( route *itinerary.Route, httpResponse *httpresponse.R
     route.Image, 
     route.ScriptCmd, 
   ) 
-  GLOBAL_CONF_MUTEXT.RUnlock() 
+  handlerLambda.ConfMutext.RUnlock() 
   if err != nil {
-    Logger.Warningf( "unable to get command for '%s' : %s", routeName, err )
+    handlerLambda.Logger.Warningf( "unable to get command for '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (internal error)" 
     return 
   }
   stdin, err := cmd.StdinPipe()
   if err != nil {
-    Logger.Warningf( "unable to get container's stdin '%s' : %s", routeName, err )
+    handlerLambda.Logger.Warningf( "unable to get container's stdin '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (internal error)" 
     return 
   }
   stderr, err := cmd.StderrPipe()
   if err != nil {
-    Logger.Warningf( "unable to get on container's stderr '%s' : %s", routeName, err )
+    handlerLambda.Logger.Warningf( "unable to get on container's stderr '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (internal error)" 
     return 
   }
@@ -89,32 +102,32 @@ func lambdaHandlerFunction( route *itinerary.Route, httpResponse *httpresponse.R
   go func() {
     errMessage, _ := io.ReadAll(stderr)
     if len( errMessage ) > 0 {
-      Logger.Debugf( "error message from container '%s' : %s", routeName, string( errMessage ) ) 
+      handlerLambda.Logger.Debugf( "error message from container '%s' : %s", routeName, string( errMessage ) ) 
     }
   }()
-  Logger.Warningf( "run container for route '%s'", routeName )
+  handlerLambda.Logger.Warningf( "run container for route '%s'", routeName )
   out, err := cmd.Output() 
   step := uint32( 0 )  
   if err != nil { 
-    Logger.Warningf( "unable to run request in container '%s' : %s", routeName, err )
+    handlerLambda.Logger.Warningf( "unable to run request in container '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (time out or failed)" 
     return 
   }
   httpResponse.MessageError = "unable to run request in container (incorrect response)" 
   if len(out) < 4 {
-    Logger.Warning( "incorrect size of headers'length from container '%s'", routeName )
+    handlerLambda.Logger.Warning( "incorrect size of headers'length from container '%s'", routeName )
     return 
   }
   sizeHeaders := binary.BigEndian.Uint32( out[0:4] ) 
   if sizeHeaders < 1 {
-    Logger.Warning( "headers of response null from container '%s'", routeName )
+    handlerLambda.Logger.Warning( "headers of response null from container '%s'", routeName )
     return 
   }
   step += 4
   var responseHeaders FunctionResponseHeaders
   err = json.Unmarshal( out[step:step+sizeHeaders], &responseHeaders )
   if err != nil {
-    Logger.Warning( "incorrect headers payload of response from container '%s'", routeName )
+    handlerLambda.Logger.Warning( "incorrect headers payload of response from container '%s'", routeName )
     return 
   }
   step += sizeHeaders 
@@ -136,70 +149,70 @@ func lambdaHandlerFunction( route *itinerary.Route, httpResponse *httpresponse.R
   return 
 }
 
-func lambdaHandler(w http.ResponseWriter, r *http.Request) {
+func ( handlerLambda HandlerLambda ) ServeHTTP ( w http.ResponseWriter, r *http.Request ) {
   httpResponse := httpresponse.Response { 
     Code: 500, 
     MessageError: "an unexpected error found", 
   }
-  defer httpResponse.Respond( &Logger, w ) 
+  defer httpResponse.Respond( handlerLambda.Logger, w ) 
   url := r.URL.Path[8:] // "/lambda/" = 8 signes
-  if GLOBAL_REGEX_ROUTE_NAME.MatchString( url ) != true {
-    Logger.Info( "bad desired url :", url )
+  if handlerLambda.GlobalRouteRegex.MatchString( url ) != true {
+    handlerLambda.Logger.Info( "bad desired url :", url )
     httpResponse.Code = 400
     httpResponse.MessageError = "bad desired url" 
     return
   }
-  Logger.Info( "known real desired url :", r.URL )
-  rNameSize := utf8.RuneCountInString( GLOBAL_REGEX_ROUTE_NAME.FindStringSubmatch( url )[1] )
+  handlerLambda.Logger.Info( "known real desired url :", r.URL )
+  rNameSize := utf8.RuneCountInString( handlerLambda.GlobalRouteRegex.FindStringSubmatch( url )[1] )
   routeName := url[:rNameSize]
   rRest := url[rNameSize:]
   if rRest == "" {
     rRest += "/"
   }
-  GLOBAL_CONF_MUTEXT.RLock()
-  route, err := GLOBAL_CONF.GetRoute( routeName )
+  handlerLambda.ConfMutext.RLock()
+  route, err := handlerLambda.Conf.GetRoute( routeName )
   if err != nil {
-    Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
+    handlerLambda.Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
     httpResponse.Code = 404
     httpResponse.MessageError = "unknow desired url" 
-    GLOBAL_CONF_MUTEXT.RUnlock()
+    handlerLambda.ConfMutext.RUnlock()
     return
   } 
-  Logger.Info( "known desired url :", routeName )
-  if lambdaHandlerAuthorization( route, r ) != true { 
+  handlerLambda.Logger.Info( "known desired url :", routeName )
+  if Authorization( route, r ) != true { 
     httpResponse.Code = 401
     httpResponse.MessageError = "you must be authentified" 
-    Logger.Info( "known desired url and unauthentified request :", routeName )
-    GLOBAL_CONF_MUTEXT.RUnlock()
+    handlerLambda.Logger.Info( "known desired url and unauthentified request :", routeName )
+    handlerLambda.ConfMutext.RUnlock()
     return 
   } 
   if route.IsService != true {
-    lambdaHandlerFunction( route, &httpResponse, w, r )
+    handlerLambda.ServeFunction( route, &httpResponse, w, r )
     return 
   }
-  GLOBAL_CONF_MUTEXT.RUnlock()
-  GLOBAL_CONF_MUTEXT.Lock()
-  route, err = GLOBAL_CONF.GetRoute( routeName )
-  tmpDir := GLOBAL_CONF.TmpDir
+  handlerLambda.ConfMutext.RUnlock()
+  handlerLambda.ConfMutext.Lock()
+  route, err = handlerLambda.Conf.GetRoute( routeName )
+  tmpDir := handlerLambda.Conf.TmpDir
   if err != nil || route.IsService != true {
-    Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
+    handlerLambda.Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
     httpResponse.Code = 404
     httpResponse.MessageError = "unknow desired url" 
-    GLOBAL_CONF_MUTEXT.RUnlock()
+    handlerLambda.ConfMutext.RUnlock()
     return
   } 
-  err = GLOBAL_CONF.Containers.Run( tmpDir, route )
+  err = handlerLambda.Conf.Containers.Run( tmpDir, route )
   routeIpAdress := route.IpAdress
   routePort := route.Port
   routeId := route.Id
-  GLOBAL_CONF_MUTEXT.Unlock()
+  handlerLambda.ConfMutext.Unlock()
   if err != nil {
-    Logger.Warning( "unknow state of container for route :", routeName, "(", err, ")" )
+    handlerLambda.Logger.Warning( "unknow state of container for route :", routeName, "(", err, ")" )
     httpResponse.Code = 503
     httpResponse.MessageError = "unknow state of container" 
     return
   }
-  Logger.Debug( "running container for desired route :", routeIpAdress, "(cId", route.Id, ")" )
+  handlerLambda.Logger.Debug( "running container for desired route :", routeIpAdress, "(cId", route.Id, ")" )
   if r.URL.RawQuery != "" {
     rRest += "?"+r.URL.RawQuery
   }
@@ -211,17 +224,17 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
     routeIpAdress+":"+strconv.Itoa( routePort ) ,
     rRest,
   )
-  Logger.Debug( "new url for desired route :", dURL, "(cId", routeId, ")" )
+  handlerLambda.Logger.Debug( "new url for desired route :", dURL, "(cId", routeId, ")" )
   proxyReq, err := http.NewRequest(
     r.Method,
     dURL,
     r.Body,
   )
   if err != nil {
-    Logger.Warning( "bad gateway for container as route :", routeName, "(", err, ")" )
+    handlerLambda.Logger.Warning( "bad gateway for container as route :", routeName, "(", err, ")" )
     httpResponse.Code = 502
     httpResponse.MessageError = "bad gateway for container" 
-    httpResponse.Respond( &Logger, w ) 
+    httpResponse.Respond( handlerLambda.Logger, w ) 
     return
   }
   proxyReq.Header.Set( "Host", r.Host )
@@ -236,12 +249,12 @@ func lambdaHandler(w http.ResponseWriter, r *http.Request) {
   }
   proxyRes, err := client.Do( proxyReq )
   if err != nil {
-    Logger.Warning( "request failed to container as route :", routeName, "(", err, ")" )
+    handlerLambda.Logger.Warning( "request failed to container as route :", routeName, "(", err, ")" )
     httpResponse.Code = 500
     httpResponse.MessageError = "request failed to container"
     return
   }
-  Logger.Debug( "result of desired route :", proxyRes.StatusCode, "(cId", routeId, ")" )
+  handlerLambda.Logger.Debug( "result of desired route :", proxyRes.StatusCode, "(cId", routeId, ")" )
   wH := w.Header()
   for header, values := range proxyRes.Header {
     for _, value := range values {

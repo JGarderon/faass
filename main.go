@@ -28,6 +28,7 @@ import (
   ApiConfiguration "api/configuration"
   ApiFunctions "api/functions"
   ApiServices "api/services"
+  "server/lambda"
 )
 
 // -----------------------------------------------
@@ -69,7 +70,15 @@ func main() {
     muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
   }
  
-  muxer.HandleFunc( "/lambda/", lambdaHandler )
+  muxer.Handle( 
+    "/lambda/", 
+    lambda.HandlerLambda {
+      GlobalRouteRegex: GLOBAL_REGEX_ROUTE_NAME,
+      Logger: &Logger, 
+      ConfMutext: &GLOBAL_CONF_MUTEXT, 
+      Conf: &GLOBAL_CONF, 
+    }, 
+  )
 
   if GLOBAL_CONF.Authorization != "" {
     Logger.Info( "Authorization secret found ; API active" )
