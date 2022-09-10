@@ -3,9 +3,9 @@ name: Go
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "pipeline" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "pipeline" ]
 
 jobs:
 
