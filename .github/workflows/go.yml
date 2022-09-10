@@ -19,12 +19,14 @@ jobs:
       with:
         go-version: 1.18.1
 
-    - name: Build and functional tests
-      run: ./build-and-test.sh
+    - name: Build 
+      run: 
+        - mkdir ./cache
+        - ./tests/functional-testing.py --build  --origin-path ./ --cache-path ./cache
       
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
       with:
-        name: ./faass
+        name: faass
         path: ./faass
         retention-days: 1
