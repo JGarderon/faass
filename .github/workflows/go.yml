@@ -23,7 +23,7 @@ jobs:
       run: mkdir ./cache
 
     - name: Build 
-      run: ./tests/functional-testing.py --build  --origin-path ./ --cache-path ./cache
+      run: ./tests/functional-testing.py --build  --origin-path `pwd` --cache-path `pwd`/cache
       
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
