@@ -6,6 +6,7 @@
   <meta name="description" content="FAASS configuration editor">
   <meta name="author" content="Julien Garderon <julien.garderon@gmail.com>">
   <link rel="stylesheet" href="main.css" media="screen"> 
+  <script type="text/javascript" src="main.js"></script>
 </head>
 <body>
 
@@ -16,20 +17,20 @@
   </div>
   <nav class="col2">
     <ul>
-      <li><a title="edit general configuration">general</a></li>
-      <li><a title="edit routes configuration">routes</a></li>
-      <li><a title="create new request">new request</a></li>
+      <li><a id="link_to_edit_conf" title="edit general configuration">general</a></li>
+      <li><a id="link_to_edit_routes" title="edit routes configuration">routes</a></li>
+      <li><a id="link_to_request" title="create new request">new request</a></li>
     </ul>
   </nav>
   <div class="col3" id="auth_form">
     <form title="auth's form">
       <span>
         <label for="auth_form_conf">Conf's auth</legend>
-        <input id="auth_form_conf" type="password" value="ok" />
+        <input id="auth_form_conf" type="password" value="Basic YWRtaW46YXplcnR5" />
       </span>
       <span>
         <label for="auth_form_request">Local request's auth</legend>
-        <input id="auth_form_request" type="password" value="ok" />
+        <input id="auth_form_request" type="password" value="" />
       </span>
     </form>
   </div>
@@ -51,7 +52,21 @@
   </div>
 </footer>
 
-<!-- template --> 
+<!-- templates --> 
+<template id="t_conf_get">
+  <h1>Refresh the local configuration from server</h1> 
+  <p>Do not forget to fill in the password's input at the top of this page beforehand :</p>
+  <input type="button" value="Get the distant conf" />
+</template>
+
+<template id="t_conf_edit">
+  <b>under construction</b> 
+</template>
+
+<template id="t_error">
+  <h1>Whoops !</h1> 
+  <p>An error has occurred :&nbsp;<span class="detail"></span>.</p>
+</template>
 
 </body>
 </html>
