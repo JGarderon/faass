@@ -64,12 +64,32 @@
   <p>An error has occurred :&nbsp;<span class="detail"></span>.</p>
 </template>
 
+<template id="t_form">
+  <form></form> 
+</template>
+
 <template id="t_form_input">
+  <style type="text/css">
+    fieldset {
+      margin: 0.5rem 0rem 0.5rem 0rem;
+    }
+    fieldset.disabled {
+      opacity:  0.5;
+    }
+    span {
+      display: block;
+    }
+    span.value label {
+      font-size: 75%;
+    }
+  </style>
   <fieldset class="input">
     <legend></legend>
     <span class="help"></span>
-    <label for=""></label>
-    <input type="" id="" name="" value="" /> 
+    <span class="value">
+      <label for=""></label>
+      <input type="" id="" name="" value="" /> 
+    </span>
   </fieldset>
 </template>
 

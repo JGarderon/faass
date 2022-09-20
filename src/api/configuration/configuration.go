@@ -102,6 +102,5 @@ func ( handlerApi *HandlerApi ) Get( httpResponse *httpresponse.Response, r *htt
   defer handlerApi.ConfMutext.RUnlock()
   defer handlerApi.Logger.Infof( "Conf asked" )
   httpResponse.Code = http.StatusOK
-  confToJson := *handlerApi.Conf
-  httpResponse.Payload = confToJson
+  httpResponse.Payload = handlerApi.Conf.GetHead()
 }

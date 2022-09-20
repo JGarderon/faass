@@ -28,10 +28,16 @@ var ConfPrefix string                   = "lambda"
 // -----------------------------------------------
 
 const (
+  ConfPathCmdContainerDefault           = "/usr/bin/docker"
+  ConfDomainDefault                     = "https://localhost"
+  ConfIncomingAdressDefault             = "0.0.0.0"
   ConfIncomingPortDefault               = 9090
+  ConfIncomingTLSDefault                = ""
   ConfDelayCleaningContainersDefault    = 60
   ConfDelayCleaningContainersMin        = 5
   ConfDelayCleaningContainersMax        = 3600
+  ConfAuthorizationDefault              = "Basic YWRtaW46YXplcnR5" // admin:azerty 
+  ConfPrefixDefault                     = "lambda"
 
   FunctionTimeoutDefault                = 1500
 
@@ -129,11 +135,12 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
     rootPath,
     ConfDirTmp,
   )
-  c.PathCmdContainer = "/usr/bin/docker"
-  c.Domain = "https://localhost"
-  c.Authorization = "Basic YWRtaW46YXplcnR5" // admin:azerty
-  c.IncomingAdress = "0.0.0.0"
+  c.PathCmdContainer = ConfPathCmdContainerDefault
+  c.Domain = ConfDomainDefault
+  c.Authorization = ConfAuthorizationDefault 
+  c.IncomingAdress = ConfIncomingAdressDefault
   c.IncomingPort = ConfIncomingPortDefault
+  c.IncomingTLS = ConfIncomingTLSDefault 
   c.DelayCleaningContainers = ConfDelayCleaningContainersDefault
   c.UI = uiTmpDir
   c.TmpDir = pathTmpDir
@@ -190,4 +197,99 @@ func ( c *Conf ) Export( pathRoot string ) bool {
     return false
   }
   return true
+}
+
+func ( c *Conf ) GetHead() map[string]map[string]interface{} {
+  return map[string]map[string]interface{} { 
+    "PathCmdContainer": map[string]interface{} { 
+      "default": ConfPathCmdContainerDefault, 
+      "type": "string", 
+      "realtype": "string", 
+      "edit": false, 
+      "title": "Path of command for executor's container",
+      "help" : "", 
+      "value": c.PathCmdContainer,
+    },
+    "Domain": map[string]interface{} { 
+      "default": ConfDomainDefault, 
+      "type": "string", 
+      "realtype": "string", 
+      "edit": false, 
+      "title": "Listening domain",
+      "help" : "", 
+      "value": c.Domain,
+    },
+    "Authorization": map[string]interface{} { 
+      "default": ConfAuthorizationDefault, 
+      "type": "string", 
+      "realtype": "string", 
+      "edit": false, 
+      "title": "Content of header Authorization",
+      "help" : "", 
+      "value": c.Authorization,
+    },
+    "IncomingAdress": map[string]interface{} { 
+      "default": ConfIncomingAdressDefault, 
+      "type": "string", 
+      "realtype": "ip", 
+      "edit": false, 
+      "title": "Adress of bind",
+      "help" : "\"0.0.0.0\" for all interfaces", 
+      "value": c.IncomingAdress,
+    },
+    "IncomingPort": map[string]interface{} { 
+      "default": ConfIncomingPortDefault, 
+      "type": "number", 
+      "realtype": "range(1,65535)", 
+      "edit": false, 
+      "title": "Port of bind",
+      "help" : "Valid range : 1 to 65535", 
+      "value": c.IncomingPort,
+    },
+    "IncomingTLS": map[string]interface{} { 
+      "default": ConfIncomingTLSDefault, 
+      "type": "string", 
+      "realtype": "string", 
+      "edit": false,
+      "title": "Tuple of paths for certificat and key TLS",
+      "help" : "Separator between two parts \":\"", 
+      "value": c.IncomingTLS,
+    },
+    "DelayCleaningContainers": map[string]interface{} { 
+      "default": ConfDelayCleaningContainersDefault, 
+      "type": "number", 
+      "realtype": "range(5,60)", 
+      "edit": true, 
+      "title": "Delay",
+      "help" : "", 
+      "value": c.DelayCleaningContainers,
+    },
+    "UI": map[string]interface{} { 
+      "default": nil, 
+      "type": "string", 
+      "realtype": "path", 
+      "edit": false, 
+      "title": "Distant path for UI's content",
+      "help" : "Can be relative or absolute root ; no default value (system-dependent)", 
+      "value": c.UI,
+    },
+    "TmpDir": map[string]interface{} { 
+      "default": nil, 
+      "type": "string", 
+      "realtype": "path", 
+      "edit": false, 
+      "title": "Distant path for temporary files",
+      "help" : "Can be relative or absolute root ; no default value (system-dependent)", 
+      "value": c.TmpDir,
+    },
+    "Prefix": map[string]interface{} { 
+      "default": ConfPrefixDefault, 
+      "type": "string", 
+      "realtype": "string", 
+      "edit": false, 
+      "title": "Prefix for URI",
+      "help" : "Must be a valid string", 
+      "value": c.Prefix,
+    },
+  }
 }

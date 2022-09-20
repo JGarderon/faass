@@ -2,71 +2,6 @@
 
 // -----------------------------------------------
 
-window.FassParamsConf = {
-  'pathcmdcontainer' : {
-    'title': 'Path of command for executor\'s container',
-    'help' : '', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  }, 
-  'domain' : {
-    'title': 'Listening domain',
-    'help' : '', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  },
-  'authorization' : {
-    'title': 'Content of header Authorization',
-    'help' : '', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  },
-  'adress' : {
-    'title': 'Adress of bind',
-    'help' : '"0.0.0.0" for all interfaces', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  },
-  'listen' : {
-    'title': 'Port of bind',
-    'help' : 'Valid range : 1 to 65535', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  },
-  'tls' : {
-    'title': 'Tuple of paths for certificat and key TLS',
-    'help' : 'Separator between two parts ":"', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  },
-  'delay' : {
-    'title': 'Delay',
-    'help' : '', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  },
-  'ui' : {
-    'title': 'Distant path for UI\'s content',
-    'help' : 'Can be relative or absolute root', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  },
-  'tmp' : {
-    'title': 'Distant path for temporary files',
-    'help' : 'Can be relative or absolute root', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  },
-  'prefix' : {
-    'title': 'Prefix for URI',
-    'help' : 'Must be a valid string', 
-    'construct': (evt) => {},
-    'confirm': (evt) => {}
-  }
-};
-
-// -----------------------------------------------
-
 class FaassConfiguration {
   static apiInternalPath = '/api/configuration'; 
   headers = new Headers();
@@ -130,18 +65,14 @@ class FaassConfiguration {
       ); 
     }
     var f = ''; 
-    const contexte = 'type="conf" action="update"'; 
-    for ( const [ key, value ] of Object.entries( this.distantConf ) ) {
-      if ( key == 'routes' ) 
-        continue; 
+    for ( const [ key, objValue ] of Object.entries( this.distantConf ) ) {
       f += `
-        <input-${typeof value} ${contexte} name="${key}">${value}</input-${typeof value}>
+        <input-${objValue['type']} title="${objValue['title']}" help="${objValue['help']}" type="${objValue['realtype']}" edit="${objValue['edit']}" name="${key}">${objValue['value']}</input-${objValue['type']}>
       `;
     }
     const body = `
-      <form-object ${contexte}>
+      <form-object target="conf" action="update" title="Update distante conf">
         ${f}
-        <input type="submit" value="Update" />
       </form-object> 
     `; 
     if ( wantFragment == true ) {
@@ -209,21 +140,59 @@ customElements.define( 'error-detail', TemplateError );
 
 // -----------------------------------------------
 
+class TemplateFormObject extends TemplateGeneric { 
+  static idTemplate = 't_form'; 
+  deal( template ) {
+    const buttonAction = document.createElement( 'input' ); 
+    buttonAction.setAttribute( 
+      "type", 
+      "button" 
+    ); 
+    buttonAction.setAttribute( 
+      "value", 
+      this.attributes
+        .getNamedItem( 'title' )
+        .value 
+    ); 
+    buttonAction.setAttribute( 
+      "target", 
+      this.attributes
+        .getNamedItem( 'target' ) 
+    ); 
+    buttonAction.setAttribute( 
+      "action", 
+      this.attributes
+        .getNamedItem( 'action' )
+    ); 
+    buttonAction.addEventListener( 
+      "click", 
+      submitForm 
+    ); 
+    this.appendChild( buttonAction );  
+    template.querySelector( 'form' ).append( ...this.childNodes );
+    return template;
+  }
+}
+customElements.define( 'form-object', TemplateFormObject );
+
+// -----------------------------------------------
+
 class TemplateInput extends TemplateGeneric { 
   deal( template ) {
     var relativeName = this.attributes
       .getNamedItem( 'name' )
       .value;
-    if ( window.FassParamsConf[relativeName] == undefined ) {
-      return goTo( 
-        'error', 
-        `the key '${relativeName}' in distant conf was not found in local params` 
-      );
-    }
     var relativeId = this.attributes
       .getNamedItem( 'type' )
       .value + '-' + relativeName; 
     var elInput = template.querySelector( 'input' ); 
+    const d = this.attributes
+      .getNamedItem( 'edit' )
+      .value; 
+    if ( d != "true" ) {
+      elInput.setAttribute( 'disabled', '' ); 
+      template.querySelector( 'fieldset' ).className = "disabled";
+    }
     elInput.attributes
       .getNamedItem( 'name' )
       .value = relativeName;
@@ -236,11 +205,19 @@ class TemplateInput extends TemplateGeneric {
       .value = relativeId;
     elLabel.innerText = relativeName; 
     var elLegend = template.querySelector( 'legend' ); 
-    elLegend.innerText = window.FassParamsConf[relativeName]['title']; 
-    if ( window.FassParamsConf[relativeName]['help'] != "" ) {
-      template.querySelector( 'span' ).innerText = window.FassParamsConf[relativeName]['help']; 
+    elLegend.innerText = this.attributes
+      .getNamedItem( 'title' )
+      .value; 
+    const h = this.attributes
+      .getNamedItem( 'help' )
+      .value; 
+    if ( h != "" ) {
+      template.querySelector( 'span' ).innerText = h; 
     }
     return template;
+  }
+  getValue() {
+    return this.shadowRoot.querySelector( 'input' ).value; 
   }
 }
 
@@ -268,6 +245,18 @@ customElements.define( 'input-number', TemplateInputNumber );
 
 // -----------------------------------------------
 
+function submitForm( evt ) {
+  evt.preventDefault(); 
+  console.log( 
+    evt.target
+      .parentElement
+      .getElementsByTagName("input-string")[0]
+      .getValue() 
+  ); 
+}
+
+// -----------------------------------------------
+
 function goTo( part, ...rest ) {
   switch ( part ) {
     case 'error': 
@@ -285,6 +274,7 @@ function goTo( part, ...rest ) {
       window.FaassConfiguration.refresh()
         .then( 
           _ => {
+            window.FaassConfiguration.formConf( true );
             document.getElementById('content').innerHTML = `
               <h1>Edit global configuration</h1>
               ${window.FaassConfiguration.formConf( false )}

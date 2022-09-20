@@ -181,7 +181,7 @@ class Tests:
     ) 
 
   async def __execute__tasks__( self ): 
-    await asyncio.sleep( 3 ) # sleep during start of subprocess Faass
+    await asyncio.sleep( 4 ) # sleep during start of subprocess Faass
     asyncio.gather( 
       *[ 
         self.__execute__task__( 
