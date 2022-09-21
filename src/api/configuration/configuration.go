@@ -70,7 +70,7 @@ func ( handlerApi *HandlerApi ) Patch( httpResponse *httpresponse.Response, r *h
   o := f.( map[string]interface{} )
   for key, value := range o {
     switch key {
-    case "delay":
+    case "DelayCleaningContainers":
       switch value.(type) {
       case float64:
         delay := int(value.(float64))

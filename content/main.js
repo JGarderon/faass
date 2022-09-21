@@ -32,6 +32,57 @@ class FaassConfiguration {
       )
     ;
   }
+  submitForm( action, requestLoad ) {
+    switch ( action ) {
+      case 'update':
+        return this.#patchWebRequest( requestLoad )
+          .then( 
+            () => Promise.resolve() 
+          )
+          .catch( 
+            e => {
+              this.inProgress = false; 
+              if ( typeof e == "number" ) {
+                console.error( `err refresh, status code : ${e}` ); 
+                return Promise.reject( `invalid status code (${e})` ); 
+              } else { 
+                console.error( `err refresh, internal error : ${e}` ); 
+                return Promise.reject( `error in response body` ); 
+              }
+            }
+          ); 
+    }
+  }
+  #patchWebRequest( requestLoad ) {
+    this.headers.set( 
+      'Authorization', 
+      document
+        .getElementById( 'auth_form_conf' )
+        .value 
+    ); 
+    this.headers.set( 
+      'Content-type', 
+      'application/json'
+    ); 
+    const request = new Request( 
+    window.location.origin+FaassConfiguration.apiInternalPath, 
+      {
+        method: 'PATCH', 
+        headers: this.headers, 
+        body: JSON.stringify( requestLoad )
+      }
+    );    
+    return fetch( request )
+      .then( 
+        r => {
+          if (r.status === 202) {
+            return "all's fine"; 
+          } else {
+            return Promise.reject( r.status );
+          }
+        }
+      )
+  }
   #getWebRequest() {
     this.headers.set( 
       'Authorization', 
@@ -142,6 +193,7 @@ customElements.define( 'error-detail', TemplateError );
 
 class TemplateFormObject extends TemplateGeneric { 
   static idTemplate = 't_form'; 
+  static edit = false; 
   deal( template ) {
     const buttonAction = document.createElement( 'input' ); 
     buttonAction.setAttribute( 
@@ -158,11 +210,13 @@ class TemplateFormObject extends TemplateGeneric {
       "target", 
       this.attributes
         .getNamedItem( 'target' ) 
+        .value 
     ); 
     buttonAction.setAttribute( 
       "action", 
       this.attributes
         .getNamedItem( 'action' )
+        .value 
     ); 
     buttonAction.addEventListener( 
       "click", 
@@ -189,7 +243,9 @@ class TemplateInput extends TemplateGeneric {
     const d = this.attributes
       .getNamedItem( 'edit' )
       .value; 
-    if ( d != "true" ) {
+    if ( d == "true" ) {
+      this.edit = true; 
+    } else { 
       elInput.setAttribute( 'disabled', '' ); 
       template.querySelector( 'fieldset' ).className = "disabled";
     }
@@ -217,7 +273,11 @@ class TemplateInput extends TemplateGeneric {
     return template;
   }
   getValue() {
-    return this.shadowRoot.querySelector( 'input' ).value; 
+    const el = this.shadowRoot.querySelector( 'input' ); 
+    const elName = el.getAttribute( 'name'); 
+    return ( el.disabled ) 
+      ? [ elName, false, null ] 
+      : [ elName, true, el.value ]; 
   }
 }
 
@@ -247,13 +307,56 @@ customElements.define( 'input-number', TemplateInputNumber );
 
 function submitForm( evt ) {
   evt.preventDefault(); 
-  console.log( 
-    evt.target
-      .parentElement
-      .getElementsByTagName("input-string")[0]
-      .getValue() 
-  ); 
-}
+  const inputsString = evt.target
+    .parentElement
+    .getElementsByTagName("input-string")
+  const inputsNumber = evt.target
+    .parentElement
+    .getElementsByTagName("input-number")
+  const requestNumbers = Array.from( inputsNumber )
+    .map( 
+      ( input ) => input.getValue()
+    )
+    .filter( 
+      ( value ) => value[1] == true 
+    )
+    .map( 
+      ( value ) => [ value[0], parseInt( value[2] ) ] 
+    );
+  const requestString = Array.from( inputsString )
+    .map( 
+      ( input ) => input.getValue()
+    )
+    .filter( 
+      ( value ) => value[1] == true 
+    )
+    .map( 
+      ( value ) => [ value[0], value[2] ] 
+    );
+  const requestLoad = requestString
+    .concat( 
+      Array.from( requestNumbers ) 
+    )
+    .reduce(
+      (o, value) => Object.assign( o, {[value[0]]: value[1]} ), 
+      {}
+    );
+  switch ( evt.target.getAttribute( 'target' ) ) { 
+    case 'conf': 
+      document.getElementById('content').innerHTML = 'wait...'; 
+      window.FaassConfiguration.submitForm( 
+        evt.target.getAttribute( 'action' ), 
+        requestLoad 
+      )
+        .then(
+          () => goTo( 'refresh' ) 
+        )
+        .catch(
+          ( err ) => goTo( 'error', err ) 
+        );
+      break; 
+  } 
+} 
 
 // -----------------------------------------------
 
