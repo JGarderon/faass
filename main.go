@@ -84,7 +84,7 @@ func main() {
     Logger.Info( "Authorization secret found ; API active" )
     muxer.Handle( 
       "/api/configuration", 
-        ApiConfiguration.HandlerApi {
+      ApiConfiguration.HandlerApi {
         Logger: &Logger, 
         ConfMutext: &GLOBAL_CONF_MUTEXT, 
         Conf: &GLOBAL_CONF, 
@@ -92,7 +92,7 @@ func main() {
     )
     muxer.Handle( 
       "/api/functions/", 
-        ApiFunctions.HandlerApi {
+      ApiFunctions.HandlerApi {
         Logger: &Logger, 
         ConfMutext: &GLOBAL_CONF_MUTEXT, 
         Conf: &GLOBAL_CONF, 
@@ -100,7 +100,7 @@ func main() {
     )
     muxer.Handle( 
       "/api/services/", 
-        ApiServices.HandlerApi {
+      ApiServices.HandlerApi {
         Logger: &Logger, 
         ConfMutext: &GLOBAL_CONF_MUTEXT, 
         Conf: &GLOBAL_CONF, 
@@ -110,12 +110,6 @@ func main() {
     Logger.Info( "Authorization secret not found ; API inactive" )
   } 
 
-  httpServer := &http.Server{
-    Addr: GLOBAL_CONF.IncomingAdress+":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ),
-    Handler:     muxer,
-  }
-
-  signalChan := make(chan os.Signal, 1)
   go utils.CleanContainers( 
     ctx, 
     false,
@@ -124,20 +118,42 @@ func main() {
     &GLOBAL_WAIT_GROUP, 
     &Logger,
   )
-  go server.Run( &GLOBAL_CONF, &Logger, httpServer )
+  
+  signalChan := make( chan os.Signal, 1 )
   signal.Notify(
     signalChan,
-    syscall.SIGHUP,
     syscall.SIGINT,
     syscall.SIGQUIT,
     syscall.SIGTERM,
   )
-  <-signalChan
-  Logger.Info("interrupt received ; shutting down")
-
-  if err := httpServer.Shutdown( ctx ); err != nil {
-    Logger.Panic( "shutdown error: %v\n", err )
-    defer os.Exit( configuration.ExitConfShuttingServerFailed )
+  restartChan := make( chan os.Signal, 1 )
+  signal.Notify(
+    restartChan,
+    syscall.SIGHUP,
+  )
+  continueServer := true
+  for continueServer == true {
+    Logger.Info("server start")
+    httpServer := &http.Server{
+      Addr: GLOBAL_CONF.IncomingAdress+":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ),
+      Handler:     muxer,
+    }
+    go server.Run( &GLOBAL_CONF, &Logger, httpServer )
+    select {
+      case <-signalChan: 
+        if err := httpServer.Shutdown( ctx ); err != nil {
+          Logger.Panic( "shutdown error: %v\n", err )
+          defer os.Exit( configuration.ExitConfShuttingServerFailed )
+        }
+        Logger.Info("interrupt received ; shutting down")
+        continueServer = false
+      case <-restartChan: 
+        if err := httpServer.Shutdown( ctx ); err != nil {
+          Logger.Panic( "restart failed ; shutdown error: %v\n", err )
+          defer os.Exit( configuration.ExitConfShuttingServerFailed )
+        }
+        Logger.Info("restart received")
+    }
   }
 
   cancel()
