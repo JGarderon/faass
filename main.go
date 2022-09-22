@@ -25,10 +25,6 @@ import (
   "configuration"
   "configuration/utils"
   "server"
-  ApiConfiguration "api/configuration"
-  ApiFunctions "api/functions"
-  ApiServices "api/services"
-  "server/lambda"
 )
 
 // -----------------------------------------------
@@ -62,54 +58,6 @@ func main() {
   ctx := context.Background()
   ctx, cancel := context.WithCancel( context.Background() )
 
-  muxer := http.NewServeMux()
-
-  UIPath := GLOBAL_CONF.UI 
-  if UIPath != "" {
-    Logger.Info( "UI path found :", UIPath )
-    muxer.Handle( "/", http.FileServer( http.Dir( UIPath ) ) )
-  }
- 
-  muxer.Handle( 
-    "/lambda/", 
-    lambda.HandlerLambda {
-      GlobalRouteRegex: GLOBAL_REGEX_ROUTE_NAME,
-      Logger: &Logger, 
-      ConfMutext: &GLOBAL_CONF_MUTEXT, 
-      Conf: &GLOBAL_CONF, 
-    }, 
-  )
-
-  if GLOBAL_CONF.Authorization != "" {
-    Logger.Info( "Authorization secret found ; API active" )
-    muxer.Handle( 
-      "/api/configuration", 
-      ApiConfiguration.HandlerApi {
-        Logger: &Logger, 
-        ConfMutext: &GLOBAL_CONF_MUTEXT, 
-        Conf: &GLOBAL_CONF, 
-      }, 
-    )
-    muxer.Handle( 
-      "/api/functions/", 
-      ApiFunctions.HandlerApi {
-        Logger: &Logger, 
-        ConfMutext: &GLOBAL_CONF_MUTEXT, 
-        Conf: &GLOBAL_CONF, 
-      }, 
-    )
-    muxer.Handle( 
-      "/api/services/", 
-      ApiServices.HandlerApi {
-        Logger: &Logger, 
-        ConfMutext: &GLOBAL_CONF_MUTEXT, 
-        Conf: &GLOBAL_CONF, 
-      }, 
-    )
-  } else { 
-    Logger.Info( "Authorization secret not found ; API inactive" )
-  } 
-
   go utils.CleanContainers( 
     ctx, 
     false,
@@ -135,8 +83,13 @@ func main() {
   for continueServer == true {
     Logger.Info("server start")
     httpServer := &http.Server{
-      Addr: GLOBAL_CONF.IncomingAdress+":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ),
-      Handler:     muxer,
+      Addr:     GLOBAL_CONF.IncomingAdress+":"+strconv.Itoa( GLOBAL_CONF.IncomingPort ),
+      Handler:  server.CreateServeMux(
+        &GLOBAL_CONF,
+        &GLOBAL_CONF_MUTEXT, 
+        &Logger,
+        GLOBAL_REGEX_ROUTE_NAME, 
+      ),
     }
     go server.Run( &GLOBAL_CONF, &Logger, httpServer )
     select {

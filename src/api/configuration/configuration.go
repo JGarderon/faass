@@ -74,7 +74,7 @@ func ( handlerApi *HandlerApi ) Patch( httpResponse *httpresponse.Response, r *h
       switch value.(type) {
       case float64:
         delay := int(value.(float64))
-        if delay >= 5 && delay <= 60 {
+        if delay >= configuration.ConfDelayCleaningContainersMin && delay <= configuration.ConfDelayCleaningContainersMax {
           defer handlerApi.Logger.Warningf( "Patch conf executed, delay changed ; new value : %v", delay )
           handlerApi.Conf.DelayCleaningContainers = delay
           continue
