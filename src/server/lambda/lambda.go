@@ -186,7 +186,7 @@ func ( handlerLambda HandlerLambda ) ServeHTTP ( w http.ResponseWriter, r *http.
     handlerLambda.ConfMutext.RUnlock()
     return 
   } 
-  if route.IsService != true {
+  if route.TypeNum == itinerary.RouteTypeFunction {
     handlerLambda.ServeFunction( route, &httpResponse, w, r )
     return 
   }
@@ -194,7 +194,7 @@ func ( handlerLambda HandlerLambda ) ServeHTTP ( w http.ResponseWriter, r *http.
   handlerLambda.ConfMutext.Lock()
   route, err = handlerLambda.Conf.GetRoute( routeName )
   tmpDir := handlerLambda.Conf.TmpDir
-  if err != nil || route.IsService != true {
+  if err != nil || route.TypeNum == itinerary.RouteTypeFunction {
     handlerLambda.Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
     httpResponse.Code = 404
     httpResponse.MessageError = "unknow desired url" 

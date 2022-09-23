@@ -8,9 +8,15 @@ import(
   "errors"
 )
 
+const (
+  RouteTypeFunction int   = iota
+  RouteTypeService        
+  RouteTypeShell          
+)
+
 type Route struct {
   Name string `json:"name"`
-  IsService bool `json:"service"`
+  TypeName string `json:"type"`
   ScriptPath string `json:"script"`
   ScriptCmd []string `json:"cmd"`
   Authorization string `json:"authorization"`
@@ -24,6 +30,21 @@ type Route struct {
   Id string `json:"-"`
   IpAdress string `json:"-"`
   Mutex sync.RWMutex `json:"-"`
+  TypeNum int `json:"-"`
+}
+
+func ( route *Route ) Check() ( error error ) {
+  switch ( route.TypeName ) {
+  case "function":
+    route.TypeNum = RouteTypeFunction
+  case "service":
+    route.TypeNum = RouteTypeService
+  case "shell":
+    route.TypeNum = RouteTypeShell
+  default:
+    error = errors.New( "type of route invalid" ) 
+  }
+  return error
 }
 
 func ( route *Route ) CreateFileEnv( tmpDir string ) ( fileEnvPath string, err error ) {

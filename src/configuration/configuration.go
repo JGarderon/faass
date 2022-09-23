@@ -150,7 +150,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   newMapEnvironmentRoute["faass-example"] = "true"
   newMapRoutes["example-service"] = &itinerary.Route {
       Name: "exampleService",
-      IsService: true,
+      TypeName: "service", 
       Authorization: "Basic YWRtaW46YXplcnR5",
       Environment: newMapEnvironmentRoute,
       Image: "nginx",
@@ -161,7 +161,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   }
   newMapRoutes["example-function"] = &itinerary.Route {
       Name: "exampleFunction",
-      IsService: false,
+      TypeName: "function", 
       ScriptPath: filepath.Join( pathTmpDir, "./example-function.py" ),
       ScriptCmd: []string{ "python3", "/function" },
       Environment: newMapEnvironmentRoute,
