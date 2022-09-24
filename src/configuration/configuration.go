@@ -167,6 +167,17 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
       Delay: ServiceDelayDefault,
       Port: ServicePortDefault,
   }
+  newMapRoutes["example-shell"] = &itinerary.Route {
+      Name: "exampleShell",
+      TypeName: "shell", 
+      Authorization: "Basic YWRtaW46YXplcnR5",
+      Environment: newMapEnvironmentRoute,
+      Image: "",
+      Timeout : ServiceTimeoutDefault,
+      Delay: ServiceDelayDefault,
+      ScriptPath: "env",
+      ScriptCmd: []string{},
+  }
   newMapRoutes["example-function"] = &itinerary.Route {
       Name: "exampleFunction",
       TypeName: "function", 
