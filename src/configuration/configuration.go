@@ -10,6 +10,7 @@ import(
   "strconv"
   "net"
   "strings"
+  "fmt"
   // -----------
   "itinerary"
   "executors"
@@ -57,6 +58,7 @@ const (
   ExitConfCheckKo
   ExitConfRegexUrlKo
   ExitConfShuttingServerFailed
+  ExitImageContainersPullFailed
 )
 
 // -----------------------------------------------
@@ -95,13 +97,12 @@ func Import( pathRoot string, c *Conf ) error {
   return nil
 }
 
-func ( c *Conf ) Check() ( message string, state bool ) {
-  state = true
+func ( c *Conf ) Check() ( err error ) {
+  message := "" 
   if c.IncomingTLS != "" {
     r := strings.Split( c.IncomingTLS, ":" )
     if len( r ) != 2 {
       message = "tls has no ':' separator"
-      state = false 
     } else {
       c.IncomingTLSCrt = r[0]
       c.IncomingTLSKey = r[1]
@@ -109,7 +110,6 @@ func ( c *Conf ) Check() ( message string, state bool ) {
   }
   if net.ParseIP( c.IncomingAdress ) == nil {
     message = "incomming adress is not an ip"
-    state = false 
   }
   if c.DelayCleaningContainers < ConfDelayCleaningContainersMin {
     c.DelayCleaningContainers = ConfDelayCleaningContainersMin
@@ -121,9 +121,17 @@ func ( c *Conf ) Check() ( message string, state bool ) {
   }
   if c.IncomingPort < 1 || c.IncomingPort > 65535 {
     message = "bad configuration : incorrect port '"+strconv.Itoa( c.IncomingPort )+"'"
-    state = false
   }
-  return message, state
+  for name, route := range c.Routes {
+    if err := route.Check(); err != nil {
+      message = fmt.Sprintf( "bad route '%v' : %v", name, err )
+      break
+    }
+  }
+  if message != "" { 
+    err = errors.New( message ) 
+  }
+  return err 
 }
 
 func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
@@ -169,6 +177,9 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
       Timeout : FunctionTimeoutDefault,
   }
   c.Routes = newMapRoutes
+  if err := c.Check() ; err != nil {
+    return false 
+  }
   return true
 }
 

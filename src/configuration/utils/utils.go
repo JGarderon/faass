@@ -10,6 +10,7 @@ import (
   "context"
   "fmt"
   "sync"
+  "os/exec"
   // -----------
   "logger"
   "configuration"
@@ -60,6 +61,7 @@ func StartEnv( globalConfMutex *sync.RWMutex, globalConfPath *string, globalConf
   testLogger := flag.String( "testlogger", "", "test logger (value of print ; string)" ) 
   confPath := flag.String( "conf", "./conf.json", "path to conf (JSON ; string)" ) 
   prepareEnv := flag.Bool( "prepare", false, "create environment (conf+dir ; bool)" )
+  pullImageContainer := flag.Bool( "pulling", false, "pull image's containers (bool)" )
   flag.Parse()
   if *testLogger != "" {
     logger.Test( *testLogger ) 
@@ -80,13 +82,43 @@ func StartEnv( globalConfMutex *sync.RWMutex, globalConfPath *string, globalConf
     logger.Panicf( "unable to load configuration with error : %v", err )
     os.Exit( configuration.ExitConfLoadKo )
   } 
-  if message, state := globalConf.Check() ; !state {
-    logger.Panicf( "check of conf failed : %v", message ) 
+  if err := globalConf.Check() ; err != nil {
+    logger.Panicf( "check of conf failed : %v", err ) 
     os.Exit( configuration.ExitConfCheckKo )
   }
   globalConf.Logger = logger
   globalConf.Containers.PathCmd = globalConf.PathCmdContainer
   globalConf.Containers.Logger = logger
+  if *pullImageContainer {
+    if err := PullImageContainers( globalConf, logger ) ; err != nil {
+      logger.Panicf( "image's container pulling failed : %v", err ) 
+      os.Exit( configuration.ExitImageContainersPullFailed )
+    }
+  } else { 
+    logger.Warningf( "no pulling images'containers" ) 
+  }
+}
+
+// -----------------------------------------------
+
+func PullImageContainers( globalConf *configuration.Conf, logger *logger.Logger ) ( err error ) {
+  for routeName, route := range globalConf.Routes {
+    logger.Infof( "image's container '%v' pulling started (%v)", routeName, route.Image ) 
+    args := []string{ 
+        "image", "pull",
+        route.Image,
+    }   
+    cmd := exec.Command( globalConf.PathCmdContainer, args... )
+    if err := cmd.Run() ; err != nil { 
+      err = errors.New( 
+        fmt.Sprintf( "image's container '%v' (%v) pulling terminated (with error)", routeName, route.Image ), 
+      ) 
+      return err 
+    } else { 
+      logger.Infof( "image's container '%v' pulling terminated (without error)", routeName ) 
+    }
+  }
+  return err 
 }
 
 // -----------------------------------------------
