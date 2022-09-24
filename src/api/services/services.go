@@ -53,7 +53,7 @@ func ( handlerApi *HandlerApi ) Post ( httpResponse *httpresponse.Response, r *h
   defer handlerApi.ConfMutext.Unlock()
   routeId := r.URL.Path[14:] // /api/services/
   route, _ := handlerApi.Conf.GetRoute( routeId )
-  if route != nil && route.IsService != true {
+  if route != nil && route.TypeNum == itinerary.RouteTypeFunction {
     defer handlerApi.Logger.Infof( "Post service '%v' failed : existent but not a service", routeId )
     httpResponse.Code = http.StatusPreconditionFailed
     httpResponse.MessageError = "this route is a function, no a service"
@@ -75,7 +75,18 @@ func ( handlerApi *HandlerApi ) Post ( httpResponse *httpresponse.Response, r *h
     httpResponse.MessageError = "the request's body is an invalid"
     return 
   } 
-  newRoute.IsService = true; 
+  if err := newRoute.Check(); err != nil {
+    defer handlerApi.Logger.Warningf( "Post function '%v' ; error in request conf : %v", routeId, err )
+    httpResponse.Code = http.StatusBadRequest 
+    httpResponse.MessageError = "the request's body is an invalid"
+    return 
+  }
+  if newRoute.TypeName != "service" {
+    defer handlerApi.Logger.Warningf( "Post function '%v' ; this route is an existing non-service", routeId )
+    httpResponse.Code = http.StatusBadRequest 
+    httpResponse.MessageError = "this route is an existing non-service"
+    return 
+  }
   if route != nil {
     route.Mutex.Lock()
     defer route.Mutex.Unlock()
@@ -111,7 +122,7 @@ func ( handlerApi *HandlerApi ) Delete ( httpResponse *httpresponse.Response, r 
     httpResponse.Code = http.StatusNotFound 
     httpResponse.MessageError = "unknow route"
     return 
-  } else if route.IsService != true {
+  } else if route.TypeNum == itinerary.RouteTypeFunction {
     defer handlerApi.Logger.Infof( "Delete service '%v' failed : existent but not a service", routeId )
     httpResponse.Code = http.StatusPreconditionFailed
     httpResponse.MessageError = "this route is a function, no a service"
@@ -150,7 +161,7 @@ func ( handlerApi *HandlerApi ) Get ( httpResponse *httpresponse.Response, r *ht
     httpResponse.Code = http.StatusNotFound 
     httpResponse.MessageError = "unknow route"
     return 
-  } else if route.IsService != true {
+  } else if route.TypeNum == itinerary.RouteTypeFunction {
     defer handlerApi.Logger.Infof( "Get service '%v' failed : existent but not a function", routeId )
     httpResponse.Code = http.StatusBadRequest
     httpResponse.MessageError = "this route is not a service"

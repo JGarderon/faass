@@ -57,7 +57,7 @@ func ( handlerApi *HandlerApi ) Post ( httpResponse *httpresponse.Response, r *h
   defer handlerApi.ConfMutext.RUnlock()
   routeId := r.URL.Path[15:] // /api/functions/
   route, _ := handlerApi.Conf.GetRoute( routeId )
-  if route != nil && route.IsService == true {
+  if route != nil && route.TypeNum == itinerary.RouteTypeService {
     defer handlerApi.Logger.Infof( "Post function '%v' failed : existent but not a function", routeId )
     httpResponse.Code = http.StatusPreconditionFailed
     httpResponse.MessageError = "this route is a service, not a function"
@@ -85,7 +85,7 @@ func ( handlerApi *HandlerApi ) Patch ( httpResponse *httpresponse.Response, r *
   defer handlerApi.ConfMutext.Unlock()
   routeId := r.URL.Path[15:] // /api/functions/
   route, _ := handlerApi.Conf.GetRoute( routeId )
-  if route != nil && route.IsService == true {
+  if route != nil && route.TypeNum == itinerary.RouteTypeService {
     defer handlerApi.Logger.Infof( "Patch function '%v' failed : existent but not a function", routeId )
     httpResponse.Code = http.StatusPreconditionFailed
     httpResponse.MessageError = "this route is a service, not a function"
@@ -106,7 +106,18 @@ func ( handlerApi *HandlerApi ) Patch ( httpResponse *httpresponse.Response, r *
     httpResponse.MessageError = "the request's body is an invalid"
     return
   }
-  newRoute.IsService = false; 
+  if err := newRoute.Check(); err != nil {
+    defer handlerApi.Logger.Warningf( "Post function '%v' ; error in request conf : %v", routeId, err )
+    httpResponse.Code = http.StatusBadRequest 
+    httpResponse.MessageError = "the request's body is an invalid"
+    return 
+  }
+  if newRoute.TypeName != "function" {
+    defer handlerApi.Logger.Warningf( "Post function '%v' ; this route is an existing non-function", routeId )
+    httpResponse.Code = http.StatusBadRequest 
+    httpResponse.MessageError = "this route is an existing non-function"
+    return 
+  }
   if route != nil {
     route.Mutex.Lock()
     defer route.Mutex.Unlock()
@@ -126,7 +137,7 @@ func ( handlerApi *HandlerApi ) Delete ( httpResponse *httpresponse.Response, r 
     defer handlerApi.Logger.Infof( "Delete function '%v' failed : non-existent", routeId )
     httpResponse.Code = http.StatusNotFound
     httpResponse.MessageError = "unknow route"
-  } else if route.IsService == true {
+  } else if route.TypeNum == itinerary.RouteTypeService {
     defer handlerApi.Logger.Infof( "Delete function '%v' failed : existent but not a function", routeId )
     httpResponse.Code = http.StatusPreconditionFailed
     httpResponse.MessageError = "this route is a service, no a function"
@@ -150,7 +161,7 @@ func ( handlerApi *HandlerApi ) Get ( httpResponse *httpresponse.Response, r *ht
       defer handlerApi.Logger.Infof( "Get function '%v' failed : non-existent", routeId )
       httpResponse.Code = http.StatusNotFound
       httpResponse.MessageError = "unknow route"
-    } else if route.IsService == true {
+    } else if route.TypeNum == itinerary.RouteTypeService {
       defer handlerApi.Logger.Infof( "Get function '%v' failed : non-existent but not a function", routeId )
       httpResponse.Code = http.StatusPreconditionFailed
       httpResponse.MessageError = "this route is a service, no a function"

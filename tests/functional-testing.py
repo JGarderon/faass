@@ -7,6 +7,7 @@ import logging
 import types
 import concurrent.futures
 from functools import partial
+import json 
 
 # -----------------------------------------------
 
@@ -250,6 +251,20 @@ class TestsAll( Tests ):
       raise TestFail( f"test lambda-functions in error, HTTP status : {r.status_code} (expected : 200)" )
     if r.text != m: 
       raise TestFail( f"test lambda-functions in error, no echo found (expected : '{m}')" )
+
+  async def test_lambda_shell_get( self ):
+    r = await self.__wrap_task_fn__(
+      requests.get,
+      f"{self.url}{self.path_lambda}/example-shell",
+      verify=False, 
+      auth=self.auth 
+    ) 
+    if r.status_code != 200: 
+      raise TestFail( f"test lambda-shell in error, HTTP status : {r.status_code} (expected : 200)" )
+    objR = json.loads( r.content )
+    logger_bar.info( objR )
+    if objR["exitcode"] != 0: 
+      raise TestFail( f"test lambda-shell in error, exit code process : {objR['exitcode']} (expected : 0)" )
 
   async def test_lambda_services_get( self ): 
     r = await self.__wrap_task_fn__(

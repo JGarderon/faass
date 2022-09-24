@@ -13,11 +13,13 @@ import(
   "encoding/binary" 
   "regexp"
   "sync"
+  "os/exec"
   //-----------
   "httpresponse"
   "itinerary"
   "configuration"
   "logger"
+  "executors/shell"
 )
 
 // -----------------------------------------------
@@ -53,6 +55,62 @@ type FunctionResponseHeaders struct {
 } 
 
 // -----------------------------------------------
+
+func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
+  ctx, cancel := context.WithTimeout( 
+    context.Background(), 
+    time.Duration( route.Timeout ) * time.Millisecond, 
+  ) 
+  defer cancel()
+  httpResponse.Code = 500
+  httpResponse.MessageError = "an unexpected error found"
+  routeName := route.Name 
+  handlerLambda.ConfMutext.RLock() 
+  cmd, err := shell.ExecuteRequest( 
+    ctx, 
+    routeName, 
+    route.ScriptPath, 
+    route.ScriptCmd, 
+    route.Environment, 
+  ) 
+  handlerLambda.ConfMutext.RUnlock() 
+  if err != nil {
+    handlerLambda.Logger.Warningf( "unable to get cmd for '%s' : %s", routeName, err )
+    httpResponse.MessageError = "unable to run request(internal error)" 
+    return 
+  }
+  stdin, err := cmd.StdinPipe()
+  if err != nil {
+    handlerLambda.Logger.Warningf( "unable to get cmd's stdin '%s' : %s", routeName, err )
+    httpResponse.MessageError = "unable to run request (internal error)" 
+    return 
+  }
+  go func() {
+    defer stdin.Close()
+    io.Copy( stdin, r.Body ) 
+  }() 
+  handlerLambda.Logger.Warningf( "run container for route '%s'", routeName )
+  out, err := cmd.CombinedOutput() 
+  if err != nil { 
+    handlerLambda.Logger.Warningf( "unable to run request '%s' : %s", routeName, err )
+  } 
+  httpResponse.MessageError = ""
+  returnCode := 0
+  if err != nil {
+    if exiterr, ok := err.(*exec.ExitError); ok {
+      returnCode = exiterr.ExitCode()
+    } else { 
+      httpResponse.MessageError = fmt.Sprintf( "unable to get exit code with error : %v", err ) 
+      return 
+    }
+  }
+  httpResponse.Code = 200
+  httpResponse.Payload = map[string]interface{} { 
+    "exitcode" : returnCode, 
+    "content" : string( out ), 
+  }
+  return 
+}
 
 func ( handlerLambda *HandlerLambda ) ServeFunction ( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
   ctx, cancel := context.WithTimeout( 
@@ -186,15 +244,19 @@ func ( handlerLambda HandlerLambda ) ServeHTTP ( w http.ResponseWriter, r *http.
     handlerLambda.ConfMutext.RUnlock()
     return 
   } 
-  if route.IsService != true {
+  switch route.TypeNum {
+  case itinerary.RouteTypeFunction:
     handlerLambda.ServeFunction( route, &httpResponse, w, r )
+    return 
+  case itinerary.RouteTypeShell:
+    handlerLambda.ServeShell( route, &httpResponse, w, r )
     return 
   }
   handlerLambda.ConfMutext.RUnlock()
   handlerLambda.ConfMutext.Lock()
   route, err = handlerLambda.Conf.GetRoute( routeName )
   tmpDir := handlerLambda.Conf.TmpDir
-  if err != nil || route.IsService != true {
+  if err != nil || route.TypeNum == itinerary.RouteTypeFunction {
     handlerLambda.Logger.Info( "unknow desired url :", routeName, "(", err, ")" )
     httpResponse.Code = 404
     httpResponse.MessageError = "unknow desired url" 
