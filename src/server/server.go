@@ -58,8 +58,8 @@ func CreateServeMux( c *configuration.Conf, m *sync.RWMutex, l *logger.Logger, r
       Conf: c, 
     }, 
   )
-  if c.Authorization != "" {
-    l.Info( "Authorization secret found ; API active" )
+  if c.AuthorizationAPI != "" {
+    l.Info( "Authorization secret API found ; API active" )
     muxer.Handle( 
       "/api/configuration", 
       ApiConfiguration.HandlerApi {
@@ -85,7 +85,7 @@ func CreateServeMux( c *configuration.Conf, m *sync.RWMutex, l *logger.Logger, r
       }, 
     )
   } else { 
-    l.Info( "Authorization secret not found ; API inactive" )
+    l.Info( "Authorization secret API not found ; API inactive" )
   } 
   return muxer 
 }

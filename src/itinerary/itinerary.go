@@ -20,6 +20,7 @@ type Route struct {
   ScriptPath string `json:"script"`
   ScriptCmd []string `json:"cmd"`
   Authorization string `json:"authorization"`
+  AuthorizationDefault string `json:"-"`
   Environment map[string]string `json:"env"`
   Image string `json:"image"`
   Timeout int `json:"timeout"`

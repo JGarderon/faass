@@ -33,14 +33,14 @@ type HandlerLambda struct {
 
 // -----------------------------------------------
 
-func Authorization( c *itinerary.Route, r *http.Request ) bool {
-  if c.Authorization == "" { 
-    if r.Header.Get( "Authorization" ) != "" {
+func Authorization( route *itinerary.Route, request *http.Request ) bool {
+  if route.Authorization == "" { 
+    if request.Header.Get( "Authorization" ) != "" {
       return false 
     }
     return true
   } else { 
-    if r.Header.Get( "Authorization" ) == c.Authorization {
+    if request.Header.Get( "Authorization" ) == route.Authorization {
       return true 
     }
     return false 

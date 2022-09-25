@@ -262,7 +262,6 @@ class TestsAll( Tests ):
     if r.status_code != 200: 
       raise TestFail( f"test lambda-shell in error, HTTP status : {r.status_code} (expected : 200)" )
     objR = json.loads( r.content )
-    logger_bar.info( objR )
     if objR["exitcode"] != 0: 
       raise TestFail( f"test lambda-shell in error, exit code process : {objR['exitcode']} (expected : 0)" )
 
@@ -397,6 +396,21 @@ try:
       runner = Runner( 
         [ 
           args.output_file, 
+          "--pulling-only",
+            "--conf", args.conf_path 
+        ],
+        PATH="/usr/bin/docker" 
+      )
+      logger_general.ok( "pulling started" )
+      asyncio.run( runner.run() ) 
+      if runner.proc.returncode == 0: 
+        logger_general.ok( "pulling finished" )
+      else:
+        logger_general.critical( "pulling finished with error ; stop tests" )
+        raise Exception( "pulling failed" )
+      runner = Runner( 
+        [ 
+          args.output_file, 
             "--conf", args.conf_path 
         ],
         PATH="/usr/bin/docker" 
@@ -414,6 +428,8 @@ try:
         logger_bar.ok( f"run without critical error but return code is {runner.proc.returncode}" ) 
     except Exception as err: 
       logger_bar.critical( f"unexpected error during run : {err}" )
+except Exception: 
+  pass 
 except KeyboardInterrupt:
   pass 
 

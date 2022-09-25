@@ -15,6 +15,7 @@ import(
   "itinerary"
   "executors"
   "logger"
+  "configuration/auth"
 )
 
 // -----------------------------------------------
@@ -37,7 +38,8 @@ const (
   ConfDelayCleaningContainersDefault    = 60
   ConfDelayCleaningContainersMin        = 5
   ConfDelayCleaningContainersMax        = 3600
-  ConfAuthorizationDefault              = "Basic YWRtaW46YXplcnR5" // admin:azerty 
+  ConfAuthorizationDefault              = "Basic YWRtaW46YXplcnR5" // admin:azerty
+  ConfRefAuthorizationsDefault          = "default"
   ConfPrefixDefault                     = "lambda"
 
   FunctionTimeoutDefault                = 1500
@@ -56,6 +58,7 @@ const (
   ExitConfCreateKo
   ExitConfLoadKo
   ExitConfCheckKo
+  ExitConfAuthCheckKo
   ExitConfRegexUrlKo
   ExitConfShuttingServerFailed
   ExitImageContainersPullFailed
@@ -68,7 +71,9 @@ type Conf struct {
   PathCmdContainer string `json:"pathcmdcontainer"`
   Containers executors.Containers `json:"-"`
   Domain string `json:"domain"`
-  Authorization string `json:"authorization"`
+  Authorizations map[string]auth.Authorization `json:"authorizations"`
+  AuthorizationAPI string `json:"authapi"`
+  AuthorizationAPIDefault string `json:"-"`
   IncomingAdress string `json:"adress"`
   IncomingPort int `json:"listen"`
   IncomingTLS string `json:"tls"`
@@ -91,9 +96,44 @@ func Import( pathRoot string, c *Conf ) error {
   if err != nil {
     return errors.New( "impossible to read conf's file" )
   }
-  if json.Unmarshal( byteValue, c ) != nil {
-    return errors.New( "impossible to parse conf's file" )
+  if err := json.Unmarshal( byteValue, c ) ; err != nil {
+    return errors.New( 
+      fmt.Sprintf( "impossible to parse conf's file : %v", err ),
+    ) 
   }
+  return nil
+}
+
+func ( c *Conf ) ResolveAuth() error {
+  c.Logger.Info( "startup of auth resolving" )
+  if c.AuthorizationAPI != "" {
+    if _, ok := c.Authorizations[c.AuthorizationAPI] ; !ok { 
+      return errors.New( 
+        fmt.Sprintf( "resolve auth failed ; API auth '%v' not exists", c.AuthorizationAPI ),
+      )
+    }
+  }
+  c.Logger.Debug( "API auth resolved" )
+  c.AuthorizationAPIDefault = c.AuthorizationAPI
+  c.AuthorizationAPI = c.Authorizations[c.AuthorizationAPI]
+  for routeName, route := range c.Routes {
+    if route.Authorization == "" {
+      continue 
+    }
+    if _, ok := c.Authorizations[route.Authorization] ; !ok { 
+      return errors.New( 
+        fmt.Sprintf( 
+          "resolve auth failed for route '%v' ; auth '%v' not exists", 
+          routeName,
+          route.Authorization,
+        ),
+      )
+    } 
+    c.Logger.Debugf( "route '%v' auth  resolved", routeName )
+    route.AuthorizationDefault = route.Authorization
+    route.Authorization = c.Authorizations[route.Authorization]
+  }
+  c.Logger.Info( "stop of auth resolving ; all success" )
   return nil
 }
 
@@ -145,7 +185,9 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   )
   c.PathCmdContainer = ConfPathCmdContainerDefault
   c.Domain = ConfDomainDefault
-  c.Authorization = ConfAuthorizationDefault 
+  c.Authorizations = map[string]auth.Authorization{ 
+    ConfRefAuthorizationsDefault : ConfAuthorizationDefault, 
+  } 
   c.IncomingAdress = ConfIncomingAdressDefault
   c.IncomingPort = ConfIncomingPortDefault
   c.IncomingTLS = ConfIncomingTLSDefault 
@@ -159,7 +201,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   newMapRoutes["example-service"] = &itinerary.Route {
       Name: "exampleService",
       TypeName: "service", 
-      Authorization: "Basic YWRtaW46YXplcnR5",
+      Authorization: ConfRefAuthorizationsDefault,
       Environment: newMapEnvironmentRoute,
       Image: "nginx",
       Timeout : ServiceTimeoutDefault,
@@ -170,7 +212,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   newMapRoutes["example-shell"] = &itinerary.Route {
       Name: "exampleShell",
       TypeName: "shell", 
-      Authorization: "Basic YWRtaW46YXplcnR5",
+      Authorization: ConfRefAuthorizationsDefault,
       Environment: newMapEnvironmentRoute,
       Image: "",
       Timeout : ServiceTimeoutDefault,
@@ -241,14 +283,16 @@ func ( c *Conf ) GetHead() map[string]map[string]interface{} {
       "help" : "", 
       "value": c.Domain,
     },
-    "Authorization": map[string]interface{} { 
-      "default": ConfAuthorizationDefault, 
+    "Authorizations": map[string]interface{} { 
+      "default": map[string]auth.Authorization{ 
+        ConfRefAuthorizationsDefault : ConfAuthorizationDefault, 
+      }, 
       "type": "string", 
-      "realtype": "string", 
+      "realtype": "range(auth)", 
       "edit": false, 
-      "title": "Content of header Authorization",
+      "title": "Reference to content of header Authorization",
       "help" : "", 
-      "value": c.Authorization,
+      "value": c.Authorizations,
     },
     "IncomingAdress": map[string]interface{} { 
       "default": ConfIncomingAdressDefault, 
