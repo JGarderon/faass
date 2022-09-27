@@ -217,7 +217,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
       Image: "",
       Timeout : ServiceTimeoutDefault,
       Delay: ServiceDelayDefault,
-      ScriptPath: "env",
+      ScriptPath: "/usr/bin/env",
       ScriptCmd: []string{},
   }
   newMapRoutes["example-function"] = &itinerary.Route {
