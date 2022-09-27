@@ -65,7 +65,6 @@ func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpR
   httpResponse.Code = 500
   httpResponse.MessageError = "an unexpected error found"
   routeName := route.Name 
-  handlerLambda.ConfMutext.RLock() 
   cmd, err := shell.ExecuteRequest( 
     ctx, 
     routeName, 
@@ -73,7 +72,6 @@ func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpR
     route.ScriptCmd, 
     route.Environment, 
   ) 
-  handlerLambda.ConfMutext.RUnlock() 
   if err != nil {
     handlerLambda.Logger.Warningf( "unable to get cmd for '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request(internal error)" 
@@ -118,9 +116,7 @@ func ( handlerLambda *HandlerLambda ) ServeFunction ( route *itinerary.Route, ht
     time.Duration( route.Timeout ) * time.Millisecond, 
   ) 
   defer cancel() 
-  handlerLambda.ConfMutext.RLock() 
   tmpDir := handlerLambda.Conf.TmpDir
-  handlerLambda.ConfMutext.RUnlock() 
   fileEnvPath, err := route.CreateFileEnv( tmpDir ) 
   if err != nil {
     httpResponse.MessageError = "unable to create environment file"
@@ -135,7 +131,6 @@ func ( handlerLambda *HandlerLambda ) ServeFunction ( route *itinerary.Route, ht
     route.Image, 
     route.ScriptCmd, 
   ) 
-  handlerLambda.ConfMutext.RUnlock() 
   if err != nil {
     handlerLambda.Logger.Warningf( "unable to get command for '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (internal error)" 
@@ -247,9 +242,11 @@ func ( handlerLambda HandlerLambda ) ServeHTTP ( w http.ResponseWriter, r *http.
   switch route.TypeNum {
   case itinerary.RouteTypeFunction:
     handlerLambda.ServeFunction( route, &httpResponse, w, r )
+    handlerLambda.ConfMutext.RUnlock()
     return 
   case itinerary.RouteTypeShell:
     handlerLambda.ServeShell( route, &httpResponse, w, r )
+    handlerLambda.ConfMutext.RUnlock()
     return 
   }
   handlerLambda.ConfMutext.RUnlock()
