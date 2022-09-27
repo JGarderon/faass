@@ -4,7 +4,6 @@ import(
   "errors"
   "os"
   "path/filepath"
-  "log"
   "io/ioutil"
   "encoding/json"
   "strconv"
@@ -188,6 +187,7 @@ func ( c *Conf ) PopulateDefaults( rootPath string ) bool {
   c.Authorizations = map[string]auth.Authorization{ 
     ConfRefAuthorizationsDefault : ConfAuthorizationDefault, 
   } 
+  c.AuthorizationAPI = ConfRefAuthorizationsDefault
   c.IncomingAdress = ConfIncomingAdressDefault
   c.IncomingPort = ConfIncomingPortDefault
   c.IncomingTLS = ConfIncomingTLSDefault 
@@ -243,24 +243,60 @@ func ( c *Conf ) GetRoute( key string ) ( route *itinerary.Route, err error ) {
   return nil, errors.New( "unknow itinerary.Routes" )
 }
 
-func ( c *Conf ) Export( pathRoot string ) bool {
-  v, err := json.Marshal( c )
+func ( c *Conf ) Export( pathRoot string, reverseResolveAuth bool ) error {
+  newConfExport := Conf{}
+  newConfExport.PathCmdContainer = c.PathCmdContainer
+  newConfExport.Domain = c.Domain
+  authTmp := make( map[string]auth.Authorization )
+  for key, value := range c.Authorizations {
+    authTmp[key] = value
+  }
+  newConfExport.Authorizations = authTmp
+  fmt.Println( "c.AuthorizationAPIDefault", c.AuthorizationAPI, "----" )
+  fmt.Println( "c.AuthorizationAPIDefault", c.AuthorizationAPIDefault, "----" )
+  if  reverseResolveAuth {
+    newConfExport.AuthorizationAPI = c.AuthorizationAPIDefault
+  } else {
+    newConfExport.AuthorizationAPI = c.AuthorizationAPI
+  }
+  newConfExport.IncomingAdress = c.IncomingAdress
+  newConfExport.IncomingPort = c.IncomingPort
+  newConfExport.IncomingTLS = c.IncomingTLS
+  newConfExport.DelayCleaningContainers = c.DelayCleaningContainers
+  newConfExport.UI = c.UI
+  newConfExport.TmpDir = c.TmpDir
+  newConfExport.Prefix = c.Prefix
+  routeTmp := make( map[string]*itinerary.Route ) 
+  for key, value := range c.Routes {
+    if newRoute, err := value.Export( reverseResolveAuth ) ; err != nil {
+      return errors.New( 
+        fmt.Sprintf( "export conf failed durint Route '%v' copying : %v", key, err ), 
+      )
+    } else { 
+      routeTmp[key] = &newRoute
+    }
+  }
+  newConfExport.Routes = routeTmp
+  v, err := json.Marshal( newConfExport )
   if err != nil {
-    log.Fatal( "export conf (Marshal) :", err )
-    return false
+    return errors.New( 
+      fmt.Sprintf( "export conf failed durint Marshal step : %v", err ), 
+    )
   }
   jsonFileOutput, err := os.Create( pathRoot )
   defer jsonFileOutput.Close()
   if err != nil {
-    log.Println( "export conf (open) :", err )
-    return false
+    return errors.New( 
+      fmt.Sprintf( "export conf failed durint opening step : %v", err ), 
+    )
   }
   _, err = jsonFileOutput.Write( v )
   if err != nil {
-    log.Println( "export conf (write) :", err )
-    return false
+    return errors.New( 
+      fmt.Sprintf( "export conf failed durint writing step : %v", err ), 
+    )
   }
-  return true
+  return nil
 }
 
 func ( c *Conf ) GetHead() map[string]map[string]interface{} {

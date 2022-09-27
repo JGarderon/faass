@@ -43,10 +43,10 @@ func CreateEnv( pathExport string ) ( bool, string ) {
   }
   newConf := configuration.Conf{} 
   if !newConf.PopulateDefaults(rootPath) {
-    return false, fmt.Sprintf( "Unable to create environment : conf" )
+    return false, fmt.Sprintf( "Unable to export environment's conf" )
   }
-  if !newConf.Export( pathExport ) {
-    return false, fmt.Sprintf( "Unable to export environment : conf" )
+  if err := newConf.Export( pathExport, false ) ; err != nil {
+    return false, fmt.Sprintf( "Unable to export environment's conf :", err )
   }
   if err := os.Mkdir( newConf.UI, os.ModePerm ); err != nil {
     return false, fmt.Sprintf( "Unable to create environment for UI contents \"%v\" : %v ; pass", newConf.UI, err )

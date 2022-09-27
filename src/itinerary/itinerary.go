@@ -34,6 +34,30 @@ type Route struct {
   TypeNum int `json:"-"`
 }
 
+func ( route *Route ) Export( reverseResolveAuth bool ) ( newRouteCopied Route, error error ) {
+  newRouteCopied.Name = route.Name
+  newRouteCopied.TypeName = route.TypeName
+  newRouteCopied.ScriptPath = route.ScriptPath
+  var scriptCmdTmp []string 
+  newRouteCopied.ScriptCmd =  append( scriptCmdTmp, route.ScriptCmd... )
+  if reverseResolveAuth { 
+    newRouteCopied.Authorization = route.AuthorizationDefault
+  } else {
+    newRouteCopied.Authorization = route.Authorization
+  }
+  envTmp := make( map[string]string )
+  for key, value := range route.Environment {
+    envTmp[key] = value 
+  }
+  newRouteCopied.Environment = envTmp
+  newRouteCopied.Image = route.Image
+  newRouteCopied.Timeout = route.Timeout
+  newRouteCopied.Retry = route.Retry
+  newRouteCopied.Delay = route.Delay
+  newRouteCopied.Port = route.Port
+  return newRouteCopied, nil
+}
+
 func ( route *Route ) Check() ( error error ) {
   switch ( route.TypeName ) {
   case "function":
