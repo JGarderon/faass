@@ -328,7 +328,7 @@ func ( c *Conf ) GetHead() map[string]map[string]interface{} {
       "edit": false, 
       "title": "Reference to content of header Authorization",
       "help" : "", 
-      "value": c.Authorizations,
+      "value": c.AuthorizationAPIDefault,
     },
     "IncomingAdress": map[string]interface{} { 
       "default": ConfIncomingAdressDefault, 
