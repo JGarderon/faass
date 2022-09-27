@@ -57,6 +57,8 @@ type FunctionResponseHeaders struct {
 // -----------------------------------------------
 
 func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
+  route.Mutex.RLock()
+  defer route.Mutex.RUnlock()
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
     time.Duration( route.Timeout ) * time.Millisecond, 
@@ -111,6 +113,8 @@ func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpR
 }
 
 func ( handlerLambda *HandlerLambda ) ServeFunction ( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
+  route.Mutex.RLock()
+  defer route.Mutex.RUnlock()
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
     time.Duration( route.Timeout ) * time.Millisecond, 
@@ -249,6 +253,9 @@ func ( handlerLambda HandlerLambda ) ServeHTTP ( w http.ResponseWriter, r *http.
     handlerLambda.ConfMutext.RUnlock()
     return 
   }
+  // on doit impérativement passer en RW pour le mutex ici : 
+  // - impossible de verrouiller au niveau de la route car on créé un conteneur persistant 
+  // - le changement de dernier accès (niveau route), est protégé par le mutex à accès exclusif de la conf 
   handlerLambda.ConfMutext.RUnlock()
   handlerLambda.ConfMutext.Lock()
   route, err = handlerLambda.Conf.GetRoute( routeName )
