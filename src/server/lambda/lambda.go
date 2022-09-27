@@ -33,14 +33,14 @@ type HandlerLambda struct {
 
 // -----------------------------------------------
 
-func Authorization( c *itinerary.Route, r *http.Request ) bool {
-  if c.Authorization == "" { 
-    if r.Header.Get( "Authorization" ) != "" {
+func Authorization( route *itinerary.Route, request *http.Request ) bool {
+  if route.Authorization == "" { 
+    if request.Header.Get( "Authorization" ) != "" {
       return false 
     }
     return true
   } else { 
-    if r.Header.Get( "Authorization" ) == c.Authorization {
+    if request.Header.Get( "Authorization" ) == route.Authorization {
       return true 
     }
     return false 
@@ -57,6 +57,8 @@ type FunctionResponseHeaders struct {
 // -----------------------------------------------
 
 func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
+  route.Mutex.RLock()
+  defer route.Mutex.RUnlock()
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
     time.Duration( route.Timeout ) * time.Millisecond, 
@@ -65,7 +67,6 @@ func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpR
   httpResponse.Code = 500
   httpResponse.MessageError = "an unexpected error found"
   routeName := route.Name 
-  handlerLambda.ConfMutext.RLock() 
   cmd, err := shell.ExecuteRequest( 
     ctx, 
     routeName, 
@@ -73,7 +74,6 @@ func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpR
     route.ScriptCmd, 
     route.Environment, 
   ) 
-  handlerLambda.ConfMutext.RUnlock() 
   if err != nil {
     handlerLambda.Logger.Warningf( "unable to get cmd for '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request(internal error)" 
@@ -113,14 +113,14 @@ func ( handlerLambda *HandlerLambda ) ServeShell ( route *itinerary.Route, httpR
 }
 
 func ( handlerLambda *HandlerLambda ) ServeFunction ( route *itinerary.Route, httpResponse *httpresponse.Response, w http.ResponseWriter, r *http.Request ) {
+  route.Mutex.RLock()
+  defer route.Mutex.RUnlock()
   ctx, cancel := context.WithTimeout( 
     context.Background(), 
     time.Duration( route.Timeout ) * time.Millisecond, 
   ) 
   defer cancel() 
-  handlerLambda.ConfMutext.RLock() 
   tmpDir := handlerLambda.Conf.TmpDir
-  handlerLambda.ConfMutext.RUnlock() 
   fileEnvPath, err := route.CreateFileEnv( tmpDir ) 
   if err != nil {
     httpResponse.MessageError = "unable to create environment file"
@@ -135,7 +135,6 @@ func ( handlerLambda *HandlerLambda ) ServeFunction ( route *itinerary.Route, ht
     route.Image, 
     route.ScriptCmd, 
   ) 
-  handlerLambda.ConfMutext.RUnlock() 
   if err != nil {
     handlerLambda.Logger.Warningf( "unable to get command for '%s' : %s", routeName, err )
     httpResponse.MessageError = "unable to run request in container (internal error)" 
@@ -247,11 +246,16 @@ func ( handlerLambda HandlerLambda ) ServeHTTP ( w http.ResponseWriter, r *http.
   switch route.TypeNum {
   case itinerary.RouteTypeFunction:
     handlerLambda.ServeFunction( route, &httpResponse, w, r )
+    handlerLambda.ConfMutext.RUnlock()
     return 
   case itinerary.RouteTypeShell:
     handlerLambda.ServeShell( route, &httpResponse, w, r )
+    handlerLambda.ConfMutext.RUnlock()
     return 
   }
+  // on doit impérativement passer en RW pour le mutex ici : 
+  // - impossible de verrouiller au niveau de la route car on créé un conteneur persistant 
+  // - le changement de dernier accès (niveau route), est protégé par le mutex à accès exclusif de la conf 
   handlerLambda.ConfMutext.RUnlock()
   handlerLambda.ConfMutext.Lock()
   route, err = handlerLambda.Conf.GetRoute( routeName )

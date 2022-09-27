@@ -20,6 +20,7 @@ type Route struct {
   ScriptPath string `json:"script"`
   ScriptCmd []string `json:"cmd"`
   Authorization string `json:"authorization"`
+  AuthorizationDefault string `json:"-"`
   Environment map[string]string `json:"env"`
   Image string `json:"image"`
   Timeout int `json:"timeout"`
@@ -31,6 +32,30 @@ type Route struct {
   IpAdress string `json:"-"`
   Mutex sync.RWMutex `json:"-"`
   TypeNum int `json:"-"`
+}
+
+func ( route *Route ) Export( reverseResolveAuth bool ) ( newRouteCopied Route, error error ) {
+  newRouteCopied.Name = route.Name
+  newRouteCopied.TypeName = route.TypeName
+  newRouteCopied.ScriptPath = route.ScriptPath
+  var scriptCmdTmp []string 
+  newRouteCopied.ScriptCmd =  append( scriptCmdTmp, route.ScriptCmd... )
+  if reverseResolveAuth { 
+    newRouteCopied.Authorization = route.AuthorizationDefault
+  } else {
+    newRouteCopied.Authorization = route.Authorization
+  }
+  envTmp := make( map[string]string )
+  for key, value := range route.Environment {
+    envTmp[key] = value 
+  }
+  newRouteCopied.Environment = envTmp
+  newRouteCopied.Image = route.Image
+  newRouteCopied.Timeout = route.Timeout
+  newRouteCopied.Retry = route.Retry
+  newRouteCopied.Delay = route.Delay
+  newRouteCopied.Port = route.Port
+  return newRouteCopied, nil
 }
 
 func ( route *Route ) Check() ( error error ) {

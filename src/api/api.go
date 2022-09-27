@@ -7,13 +7,13 @@ import (
 )
 
 func VerifyAuthorization( c *configuration.Conf, r *http.Request ) bool {
-  if c.Authorization == "" { 
+  if c.AuthorizationAPI == "" { 
     if r.Header.Get( "Authorization" ) != "" {
       return false 
     }
     return true
   } else { 
-    if r.Header.Get( "Authorization" ) == c.Authorization {
+    if r.Header.Get( "Authorization" ) == c.AuthorizationAPI {
       return true 
     }
     return false 

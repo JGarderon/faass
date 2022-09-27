@@ -43,10 +43,10 @@ func CreateEnv( pathExport string ) ( bool, string ) {
   }
   newConf := configuration.Conf{} 
   if !newConf.PopulateDefaults(rootPath) {
-    return false, fmt.Sprintf( "Unable to create environment : conf" )
+    return false, fmt.Sprintf( "Unable to export environment's conf" )
   }
-  if !newConf.Export( pathExport ) {
-    return false, fmt.Sprintf( "Unable to export environment : conf" )
+  if err := newConf.Export( pathExport, false ) ; err != nil {
+    return false, fmt.Sprintf( "Unable to export environment's conf :", err )
   }
   if err := os.Mkdir( newConf.UI, os.ModePerm ); err != nil {
     return false, fmt.Sprintf( "Unable to create environment for UI contents \"%v\" : %v ; pass", newConf.UI, err )
@@ -62,6 +62,7 @@ func StartEnv( globalConfMutex *sync.RWMutex, globalConfPath *string, globalConf
   confPath := flag.String( "conf", "./conf.json", "path to conf (JSON ; string)" ) 
   prepareEnv := flag.Bool( "prepare", false, "create environment (conf+dir ; bool)" )
   pullImageContainer := flag.Bool( "pulling", false, "pull image's containers (bool)" )
+  pullImageContainerOnly := flag.Bool( "pulling-only", false, "pull image's containers and exit (bool)" )
   flag.Parse()
   if *testLogger != "" {
     logger.Test( *testLogger ) 
@@ -89,7 +90,11 @@ func StartEnv( globalConfMutex *sync.RWMutex, globalConfPath *string, globalConf
   globalConf.Logger = logger
   globalConf.Containers.PathCmd = globalConf.PathCmdContainer
   globalConf.Containers.Logger = logger
-  if *pullImageContainer {
+  if err := globalConf.ResolveAuth() ; err != nil {
+    logger.Panicf( "check of conf (auth part's) failed : %v", err ) 
+    os.Exit( configuration.ExitConfAuthCheckKo )
+  }
+  if *pullImageContainerOnly || *pullImageContainer {
     if err := PullImageContainers( globalConf, logger ) ; err != nil {
       logger.Panicf( "image's container pulling failed : %v", err ) 
       os.Exit( configuration.ExitImageContainersPullFailed )
@@ -97,12 +102,20 @@ func StartEnv( globalConfMutex *sync.RWMutex, globalConfPath *string, globalConf
   } else { 
     logger.Warningf( "no pulling images'containers" ) 
   }
+  if *pullImageContainerOnly {
+    logger.Warningf( "only pulling images'containers wanted" ) 
+    os.Exit( configuration.ExitOk )
+  }
 }
 
 // -----------------------------------------------
 
 func PullImageContainers( globalConf *configuration.Conf, logger *logger.Logger ) ( err error ) {
   for routeName, route := range globalConf.Routes {
+    if route.Image == "" { 
+      logger.Infof( "route '%v' haven't image's container", routeName ) 
+      continue
+    }
     logger.Infof( "image's container '%v' pulling started (%v)", routeName, route.Image ) 
     args := []string{ 
         "image", "pull",
